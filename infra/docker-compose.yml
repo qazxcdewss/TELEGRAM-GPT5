@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tgpt5
+      POSTGRES_USER: tgpt5
+      POSTGRES_PASSWORD: tgpt5
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-07-26T22-10-45Z
+    restart: unless-stopped
+    command: server --console-address ":9001" /data
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # MinIO Console
+    volumes:
+      - minio-data:/data
+      - minio-config:/root/.minio
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-07-22T13-48-03Z
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    command: [
+      "sh", "-c",
+      "set -e; \
+      echo 'Waiting for MinIO to be ready...'; \
+      until /usr/bin/mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do \
+        echo 'MinIO not ready yet, retrying...'; \
+        sleep 2; \
+      done; \
+      echo 'Creating bucket bots (idempotent)...'; \
+      /usr/bin/mc mb -p local/bots || true; \
+      echo 'Configuring anonymous download (optional)...'; \
+      /usr/bin/mc anonymous set download local/bots || true"
+    ]
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:
+  minio-data:
+  minio-config:
+
+
