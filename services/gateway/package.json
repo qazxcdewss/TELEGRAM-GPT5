@@ -5,19 +5,22 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node -r dotenv/config --loader ts-node/esm server.ts dotenv_config_path=../../.env.dev",
+    "dev": "tsx --env-file=../../.env.dev server.ts",
+    "db:init": "tsx --env-file=../../.env.dev init-db.ts",
     "start": "node dist/server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "-": "^0.0.1",
     "@aws-sdk/client-s3": "^3.872.0",
     "@fastify/cors": "^11.1.0",
     "@types/node": "^24.3.0",
     "fastify": "^5.5.0",
+    "ioredis": "^5.7.0",
+    "pg": "^8.16.3",
     "ts-node": "^10.9.2",
+    "tsx": "^4.20.4",
     "typescript": "^5.9.2"
   }
 }
