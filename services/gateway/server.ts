@@ -9,6 +9,10 @@ import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand } fr
 import { Pool } from 'pg'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
+import multipart from '@fastify/multipart'
+
+
+
 
 // ===== ENV =====
 const PORT           = Number(process.env.PORT || 3000)
@@ -38,6 +42,14 @@ const sortKeys = (x: any): any =>
 
 const canonical = (o: any) => JSON.stringify(sortKeys(o))
 const sha256    = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
+
+async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk as Buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
 
 // ===== In-memory mirrors (удобно для демо; source of truth — PG/S3) =====
 const specStore: Record<string, { version: number; canonical: string; specSha256: string; createdAt: string }[]> = {}
@@ -90,10 +102,12 @@ const app = Fastify({ logger: true })
 
 async function main() {
     await app.register(cors, {
-      origin: [CONSOLE_ORIGIN],
+      origin: [CONSOLE_ORIGIN, 'http://127.0.0.1:5173'],
       credentials: true,
-      allowedHeaders: ['content-type', 'x-bot-secret']
+      allowedHeaders:  ['content-type', 'x-bot-id', 'x-bot-secret']
     })
+  
+    await app.register(multipart)
   
     // preload active revisions из PG (чтобы после рестарта помнить flip)
     try {
@@ -130,8 +144,45 @@ async function main() {
     }, 15_000)
 
   // ===== /spec ===== (создать новую версию Spec; immutable в PG)
+  // CORS preflight for /spec (explicit to ensure custom headers are allowed)
+  app.options('/spec', async (req, reply) => {
+    const origin = (req.headers.origin as string) || ''
+    const allowedOrigins = new Set([CONSOLE_ORIGIN, 'http://127.0.0.1:5173'])
+    if (allowedOrigins.has(origin)) reply.header('Access-Control-Allow-Origin', origin)
+    reply
+      .header('Vary', 'Origin')
+      .header('Access-Control-Allow-Headers', 'content-type, x-bot-id, x-bot-secret')
+      .header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+      .header('Access-Control-Allow-Credentials', 'true')
+      .code(204)
+      .send()
+  })
+
   app.post('/spec', async (req, reply) => {
-    const spec = req.body as any
+    let spec = req.body as any
+    const headerBotId = (req.headers['x-bot-id'] as string | undefined)?.trim()
+
+    // Support multipart file upload: expect field name 'spec'
+    try {
+      const isMultipart = (req as any).isMultipart?.()
+      if (isMultipart) {
+        let specText = ''
+        for await (const part of (req as any).parts()) {
+          if (part?.type === 'file' && part?.fieldname === 'spec' && part?.file) {
+            specText = await readStreamToString(part.file)
+          }
+        }
+        if (!specText) return reply.code(400).send({ error: { code: 'SPEC_FILE_MISSING', message: 'spec file is required' } })
+        try {
+          spec = JSON.parse(specText)
+        } catch {
+          return reply.code(400).send({ error: { code: 'SPEC_INVALID_JSON', message: 'spec file is not valid JSON' } })
+        }
+      }
+    } catch (e) {
+      req.log.error(e, 'failed to parse multipart spec')
+      return reply.code(400).send({ error: { code: 'MULTIPART_PARSE_FAILED' } })
+    }
 
     // AJV validation
     const ajv = new Ajv({ allErrors: true, strict: false })
@@ -152,6 +203,11 @@ async function main() {
       required: ['meta'],
       additionalProperties: true
     }
+    // If botId header is provided and not present in spec.meta, inject it
+    if (headerBotId && (!spec?.meta || !spec?.meta?.botId)) {
+      spec = { ...(spec || {}), meta: { ...(spec?.meta || {}), botId: headerBotId } }
+    }
+
     const validate = ajv.compile(specSchema)
     const valid = validate(spec)
     if (!valid) {
