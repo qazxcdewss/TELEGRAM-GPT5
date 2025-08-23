@@ -7,6 +7,8 @@ import cors from '@fastify/cors'
 import crypto from 'node:crypto'
 import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { Pool } from 'pg'
+import Ajv from 'ajv'
+import addFormats from 'ajv-formats'
 
 // ===== ENV =====
 const PORT           = Number(process.env.PORT || 3000)
@@ -130,8 +132,32 @@ async function main() {
   // ===== /spec ===== (создать новую версию Spec; immutable в PG)
   app.post('/spec', async (req, reply) => {
     const spec = req.body as any
-    const botId = spec?.meta?.botId || spec?.botId
-    if (!botId) return reply.code(400).send({ error: { code: 'SPEC_INVALID_SCHEMA', message: 'meta.botId is required' } })
+
+    // AJV validation
+    const ajv = new Ajv({ allErrors: true, strict: false })
+    addFormats(ajv)
+    const specSchema = {
+      type: 'object',
+      properties: {
+        meta: {
+          type: 'object',
+          properties: {
+            botId: { type: 'string', minLength: 1 },
+            schema_ver: { type: 'string' }
+          },
+          required: ['botId'],
+          additionalProperties: true
+        }
+      },
+      required: ['meta'],
+      additionalProperties: true
+    }
+    const validate = ajv.compile(specSchema)
+    const valid = validate(spec)
+    if (!valid) {
+      return reply.code(400).send({ error: { code: 'SPEC_INVALID_SCHEMA', message: 'Validation failed', details: validate.errors } })
+    }
+    const botId = (spec as any)?.meta?.botId as string
 
     const text = canonical(spec)
     const specSha256 = sha256(text)
@@ -139,9 +165,19 @@ async function main() {
     // write to PG
     const ins = await pool.query(
       'INSERT INTO spec_versions (bot_id, schema_ver, canonical_spec, spec_hash) VALUES ($1,$2,$3,$4) RETURNING id',
-      [botId, spec?.meta?.schema_ver ?? '1.0.0', JSON.parse(text), specSha256]
+      [botId, (spec as any)?.meta?.schema_ver ?? '1.0.0', JSON.parse(text), specSha256]
     )
     const version = Number(ins.rows[0].id)
+
+    // save original spec.json to S3 as bots/<botId>/<specSha>.json
+    try {
+      await ensureBucket()
+      const s3Key = `bots/${botId}/${specSha256}.json`
+      await putS3(s3Key, JSON.stringify(spec))
+    } catch (e) {
+      req.log.error(e, 'failed to persist spec.json to S3')
+      // not failing the whole request; PG insert already succeeded
+    }
 
     // mirror in memory (для простоты демо)
     const list = (specStore[botId] ||= [])
