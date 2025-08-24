@@ -5,11 +5,12 @@ import Redis from 'ioredis'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import crypto from 'node:crypto'
-import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { Pool } from 'pg'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
+import { generateBotJs } from './generator'
 
 
 
@@ -32,6 +33,14 @@ const PG_PASS = process.env.PG_PASSWORD || 'tgpt5'
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 const redis = new Redis(REDIS_URL)
+const redisSub = new Redis(REDIS_URL)
+redisSub.subscribe('sse')
+redisSub.on('message', (_ch, msg) => {
+  try {
+    const { event, data } = JSON.parse(msg)
+    sendEvent(event, data)
+  } catch {}
+})
 
 // ===== Helpers =====
 const sortKeys = (x: any): any =>
@@ -50,6 +59,87 @@ async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string
   }
   return Buffer.concat(chunks).toString('utf8')
 }
+
+// ===== AJV (BotSpec v1) =====
+const ajv = new Ajv({ allErrors: true, strict: false })
+addFormats(ajv)
+
+const BotSpecSchema = {
+  $id: "BotSpecV1",
+  type: "object",
+  required: ["meta"],
+  additionalProperties: false,
+  properties: {
+    meta: {
+      type: "object",
+      required: ["botId"],
+      additionalProperties: false,
+      properties: {
+        botId: { type: "string", minLength: 1 },
+        name:  { type: "string", minLength: 1, nullable: true },
+        locale:{ type: "string", minLength: 2, maxLength: 10, nullable: true },
+        schema_ver: { type: "string", default: "1.0.0" }
+      }
+    },
+    limits: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        botRps:  { type: "integer", minimum: 1, default: 30 },
+        chatRps: { type: "integer", minimum: 1, default: 1 }
+      }
+    },
+    commands: {
+      type: "array",
+      default: [],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["cmd", "flow"],
+        properties: {
+          cmd:  { type: "string", minLength: 1 },
+          flow: { type: "string", minLength: 1 }
+        }
+      }
+    },
+    flows: {
+      type: "array",
+      default: [],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "steps"],
+        properties: {
+          name:  { type: "string", minLength: 1 },
+          steps: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["type"],
+              properties: {
+                type: { enum: ["sendMessage", "goto", "http"] },
+                text: { type: "string" },
+                to:   { type: "string" },
+                url:  { type: "string", format: "uri" },
+                method: { enum: ["GET","POST"], default:"POST" },
+                body:  { type: ["object","null"], default: null }
+              }
+            }
+          }
+        }
+      }
+    },
+    actions: {
+      type: "array",
+      default: [],
+      items: { type: "object" }
+    }
+  }
+} as const
+
+const validateBotSpec = ajv.compile(BotSpecSchema)
 
 // ===== In-memory mirrors (удобно для демо; source of truth — PG/S3) =====
 const specStore: Record<string, { version: number; canonical: string; specSha256: string; createdAt: string }[]> = {}
@@ -85,16 +175,103 @@ async function putS3(key: string, body: string) {
   }))
 }
 
+async function getS3Text(key: string): Promise<string> {
+  const r = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }))
+  const chunks: Buffer[] = []
+  for await (const ch of r.Body as any) chunks.push(Buffer.isBuffer(ch) ? ch : Buffer.from(ch))
+  return Buffer.concat(chunks).toString('utf8')
+}
+
 // ===== PG =====
 const pool = new Pool({
   host: PG_HOST, port: PG_PORT, database: PG_DB, user: PG_USER, password: PG_PASS
 })
+
+async function ensureTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS spec_versions (
+      id SERIAL PRIMARY KEY,
+      bot_id TEXT NOT NULL,
+      schema_ver TEXT NOT NULL DEFAULT '1.0.0',
+      canonical_spec JSONB NOT NULL,
+      spec_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_spec_versions_bot_created ON spec_versions (bot_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS revisions (
+      rev_hash TEXT PRIMARY KEY,
+      bot_id TEXT NOT NULL,
+      spec_version_id INTEGER NOT NULL REFERENCES spec_versions(id) ON DELETE CASCADE,
+      key_prefix TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_revisions_bot_created ON revisions (bot_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS bots (
+      bot_id TEXT PRIMARY KEY,
+      active_rev_hash TEXT REFERENCES revisions(rev_hash)
+    );
+  `)
+}
 
 // ===== SSE Hub =====
 const clients = new Set<import('http').ServerResponse>()
 function sendEvent(event: string, data: any) {
   const payload = `event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`
   for (const c of clients) { try { c.write(payload) } catch { /* ignore */ } }
+}
+
+type HandlerCacheEntry = { revHash: string; fn: (ctx:any)=>Promise<any> }
+const handlerCache = new Map<string, HandlerCacheEntry>() // botId -> {revHash, fn}
+
+async function loadHandler(botId: string, revHash: string) {
+  const cached = handlerCache.get(botId)
+  if (cached && cached.revHash === revHash) return cached.fn
+
+  const row = await pool.query('SELECT key_prefix FROM revisions WHERE rev_hash=$1 LIMIT 1', [revHash])
+  const keyPrefix = row.rows[0]?.key_prefix
+  const js = await getS3Text(`${keyPrefix}/bot.js`)
+
+  const module = { exports: {} as any }
+  const factory = new Function('exports','module', js + '\nreturn module.exports;')
+  const exports = factory(module.exports, module)
+  const fn = (exports?.handleUpdate || module.exports?.handleUpdate) as (ctx:any)=>Promise<any>
+  if (typeof fn !== 'function') throw new Error('handleUpdate not exported')
+
+  handlerCache.set(botId, { revHash, fn })
+  return fn
+}
+
+// Queue helpers (per-chat FIFO)
+function qKey(botId: string, chatId: string | number) { return `q:in:${botId}:${chatId}` }
+
+async function processOne(jobStr: string) {
+  const job = JSON.parse(jobStr)
+  const handler = await loadHandler(job.botId, job.revHash)
+  try {
+    const response = await handler({ message: { chat: { id: job.chatId }, text: job.text } })
+    sendEvent('MessageProcessed', { botId: job.botId, chatId: job.chatId, response })
+  } catch (e: any) {
+    sendEvent('MessageProcessed', { botId: job.botId, chatId: job.chatId, error: String(e?.message || e) })
+  }
+}
+
+function startWorker() {
+  (async function loop() {
+    try {
+      const keys = await redis.keys('q:in:*')
+      if (keys.length === 0) { await new Promise(r => setTimeout(r, 300)); return setImmediate(loop) }
+      const res = await redis.brpop(keys, 2)
+      if (res) {
+        const [_key, payload] = res
+        await processOne(payload)
+      }
+    } catch (e) {
+      app.log.error(e, 'worker loop error')
+      await new Promise(r => setTimeout(r, 200))
+    } finally {
+      setImmediate(loop)
+    }
+  })()
 }
 
 // ===== Fastify =====
@@ -109,6 +286,7 @@ async function main() {
   
     await app.register(multipart)
   
+    await ensureTables()
     // preload active revisions из PG (чтобы после рестарта помнить flip)
     try {
       const rows = await pool.query('SELECT bot_id, active_rev_hash FROM bots')
@@ -129,11 +307,20 @@ async function main() {
 
   // SSE
   app.get('/events', async (req, reply) => {
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive'
-    })
+    const origin = (req.headers.origin as string) || ''
+    const allowedOrigins = new Set([CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'])
+    if (allowedOrigins.has(origin)) {
+      reply.header('Access-Control-Allow-Origin', origin)
+      reply.header('Vary', 'Origin')
+    }
+
+    reply
+      .header('Cache-Control', 'no-cache')
+      .header('Content-Type', 'text/event-stream')
+      .header('Connection', 'keep-alive')
+      .code(200)
+
+    // первая «пустая» строка по протоколу SSE
     reply.raw.write('\n')
     clients.add(reply.raw)
     req.raw.on('close', () => clients.delete(reply.raw))
@@ -184,34 +371,19 @@ async function main() {
       return reply.code(400).send({ error: { code: 'MULTIPART_PARSE_FAILED' } })
     }
 
-    // AJV validation
-    const ajv = new Ajv({ allErrors: true, strict: false })
-    addFormats(ajv)
-    const specSchema = {
-      type: 'object',
-      properties: {
-        meta: {
-          type: 'object',
-          properties: {
-            botId: { type: 'string', minLength: 1 },
-            schema_ver: { type: 'string' }
-          },
-          required: ['botId'],
-          additionalProperties: true
-        }
-      },
-      required: ['meta'],
-      additionalProperties: true
-    }
     // If botId header is provided and not present in spec.meta, inject it
     if (headerBotId && (!spec?.meta || !spec?.meta?.botId)) {
       spec = { ...(spec || {}), meta: { ...(spec?.meta || {}), botId: headerBotId } }
     }
 
-    const validate = ajv.compile(specSchema)
-    const valid = validate(spec)
+    const valid = validateBotSpec(spec)
     if (!valid) {
-      return reply.code(400).send({ error: { code: 'SPEC_INVALID_SCHEMA', message: 'Validation failed', details: validate.errors } })
+      const details = (validateBotSpec.errors || []).map((e: any) => ({
+        path: e.instancePath || e.schemaPath,
+        keyword: e.keyword,
+        message: e.message
+      }))
+      return reply.code(400).send({ error: { code: 'SPEC_INVALID_SCHEMA', message: 'Validation failed', details } })
     }
     const botId = (spec as any)?.meta?.botId as string
 
@@ -299,7 +471,8 @@ async function main() {
 
     const baseKey  = `bots/${botId}/${revHash}`
     const specJson = found.canonical
-    const botJs    = `export async function handleUpdate(ctx){return { type:'text', text:'echo: '+(ctx?.message?.text||'') }}`
+    const specObj  = JSON.parse(specJson)
+    const botJs    = generateBotJs(specObj)
     const revJson  = JSON.stringify({
       revHash, specVersion,
       artifacts: { botJs: `s3://${S3_BUCKET}/${baseKey}/bot.js`, specJson: `s3://${S3_BUCKET}/${baseKey}/spec.json`, revJson: `s3://${S3_BUCKET}/${baseKey}/rev.json` },
@@ -364,6 +537,22 @@ async function main() {
     return r.rows[0]
   })
 
+  // ===== /bots/:botId ===== — active revision info
+  app.get('/bots/:botId', async (req, reply) => {
+    const { botId } = req.params as any
+    try {
+      const r = await pool.query(
+        'SELECT bot_id, active_rev_hash FROM bots WHERE bot_id=$1 LIMIT 1',
+        [botId]
+      )
+      if (r.rowCount === 0) return { botId, activeRevHash: activeRev[botId] || null }
+      return { botId: r.rows[0].bot_id, activeRevHash: r.rows[0].active_rev_hash || null }
+    } catch (e) {
+      req.log.error(e, 'failed to fetch bot info')
+      return reply.code(500).send({ error: { code: 'INTERNAL' } })
+    }
+  })
+
   // ===== /deploy ===== (flip активной ревизии + persist в PG)
   app.post('/deploy', async (req, reply) => {
     const { botId, revHash } = req.body as any
@@ -401,7 +590,7 @@ async function main() {
     const body: any = req.body
     const updateId = body?.update_id
     const chatId = body?.message?.chat?.id
-    const echoText = body?.message?.text ?? ''
+    const text = body?.message?.text ?? ''
     const revHash = activeRev[botId]
   
     // --- Idempotency: ключ на 24 часа
@@ -413,9 +602,14 @@ async function main() {
         return { ok: true, botId, revHash, chatId, response: { type: 'noop', text: 'duplicate' } }
       }
     }
-  
-    // текущий синхронный echo (дальше вынесем в очередь)
-    return { ok: true, botId, revHash, chatId, response: { type: 'text', text: `echo: ${echoText}` } }
+    if (!revHash) return reply.code(409).send({ error:{ code:'NO_ACTIVE_REV' } })
+
+    // enqueue job for async processing
+    const job = { botId, revHash, chatId, text, ts: Date.now() }
+    await redis.lpush(qKey(botId, chatId), JSON.stringify(job))
+
+    // quick ACK
+    return { ok: true, enqueued: true, botId, chatId, revHash }
   })
 
   // корневой пинг (удобно проверять в браузере)

@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,7 +9,7 @@ services:
       POSTGRES_USER: tgpt5
       POSTGRES_PASSWORD: tgpt5
     ports:
-      - "5432:5432"
+      - "5433:5432"         # локально слушаем 5433
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -31,45 +33,46 @@ services:
       retries: 5
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-07-26T22-10-45Z
+    image: quay.io/minio/minio:latest   # фикс: валидный тег
     restart: unless-stopped
     command: server --console-address ":9001" /data
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio12345
     ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # MinIO Console
+      - "9000:9000"     # S3 API
+      - "9001:9001"     # MinIO Console
     volumes:
       - minio-data:/data
       - minio-config:/root/.minio
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   minio-init:
-    image: minio/mc:RELEASE.2024-07-22T13-48-03Z
+    image: minio/mc:latest              # фикс: валидный тег
+    restart: "no"
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy      # ждать готовности MinIO
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio12345
-    command: [
-      "sh", "-c",
-      "set -e; \
-      echo 'Waiting for MinIO to be ready...'; \
-      until /usr/bin/mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do \
-        echo 'MinIO not ready yet, retrying...'; \
-        sleep 2; \
-      done; \
-      echo 'Creating bucket bots (idempotent)...'; \
-      /usr/bin/mc mb -p local/bots || true; \
-      echo 'Configuring anonymous download (optional)...'; \
-      /usr/bin/mc anonymous set download local/bots || true"
-    ]
-    restart: "no"
+    command: >
+      sh -c '
+        set -e;
+        echo "Waiting for MinIO to be ready...";
+        /usr/bin/mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD";
+        echo "Creating bucket bots (idempotent)...";
+        /usr/bin/mc mb -p local/bots || true;
+        echo "Configuring anonymous download (optional)...";
+        /usr/bin/mc anonymous set download local/bots || true
+      '
 
 volumes:
   pgdata:
   redisdata:
   minio-data:
   minio-config:
-
-
