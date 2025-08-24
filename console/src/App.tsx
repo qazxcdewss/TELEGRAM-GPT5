@@ -32,35 +32,26 @@ export default function App() {
   }
 
   useEffect(() => {
-    refresh()
-    const es = new EventSource(`${API}/events`)
-    esRef.current = es
-    es.addEventListener('GenerateStarted', (e) => {
-      const data = JSON.parse((e as MessageEvent).data)
-      append(`[gen] started task=${data.taskId} specVersion=${data.specVersion}`)
-    })
-    es.addEventListener('GenerateSucceeded', (e) => {
-      const data = JSON.parse((e as MessageEvent).data)
-      append(`[gen] ok rev=${data.revHash}`)
-      setSelectedRev(data.revHash)
-      refresh()
-    })
-    es.addEventListener('DeployStarted', (e) => {
-      const data = JSON.parse((e as MessageEvent).data)
-      append(`[deploy] started task=${data.taskId} rev=${data.revHash}`)
-    })
-    es.addEventListener('DeployFlipped', (e) => {
-      const data = JSON.parse((e as MessageEvent).data)
-      append(`[deploy] flipped rev=${data.revHash}`)
-      refresh()
-    })
+    const url = `${API}/events`;
+    const es = new EventSource(url, { withCredentials: true });
+    esRef.current = es;
+
+    es.onopen = () => append('[sse] open');
+    es.onerror = (e) => append('[sse] error ' + (e ? '(see console)' : ''));
+    es.onmessage = (e) => append('[sse] message ' + (e as MessageEvent).data);
+
+    es.addEventListener('GenerateStarted',   (e) => append('[gen] started ' + (e as MessageEvent).data));
+    es.addEventListener('GenerateSucceeded', (e) => append('[gen] ok ' + (e as MessageEvent).data));
+    es.addEventListener('DeployStarted',     (e) => append('[deploy] started ' + (e as MessageEvent).data));
+    es.addEventListener('DeployFlipped',     (e) => append('[deploy] flipped ' + (e as MessageEvent).data));
+
     es.addEventListener('MessageProcessed', (e) => {
-      const data = JSON.parse((e as MessageEvent).data)
-      append(`[msg] bot=${data.botId} chat=${data.chatId} ${data.error ? 'ERROR ' + data.error : JSON.stringify(data.response)}`)
-    })
-    es.addEventListener('ping', () => {})
-    es.onerror = () => append('SSE connection error')
-    return () => es.close()
+      const data = JSON.parse((e as MessageEvent).data);
+      append(`[msg] bot=${data.botId} chat=${data.chatId} ` + (data.error ? 'ERROR ' + data.error : JSON.stringify(data.response)));
+    });
+
+    return () => es.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function uploadSpec() {
@@ -112,7 +103,7 @@ export default function App() {
   async function testWebhook() {
     const sampleUpdate = {
       update_id: Math.floor(Math.random() * 1e9),
-      message: { chat: { id: 12345, type: 'private' }, text: 'hello from console' }
+      message: { chat: { id: 12345, type: 'private' }, text: '/start' }
     }
     const r = await fetch(`${API}/wh/${BOT_ID}`, {
       method: 'POST',

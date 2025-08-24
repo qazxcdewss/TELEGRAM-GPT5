@@ -34,7 +34,7 @@ const PG_PASS = process.env.PG_PASSWORD || 'tgpt5'
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 const redis = new Redis(REDIS_URL)
 const redisSub = new Redis(REDIS_URL)
-redisSub.subscribe('sse')
+redisSub.subscribe('sse').then(() => { try { (app as any)?.log?.info?.('SSE relay enabled') } catch {} }).catch(()=>{})
 redisSub.on('message', (_ch, msg) => {
   try {
     const { event, data } = JSON.parse(msg)
@@ -277,14 +277,43 @@ function startWorker() {
 // ===== Fastify =====
 const app = Fastify({ logger: true })
 
+// Redis Pub/Sub → SSE relay
+redisSub.subscribe('sse')
+redisSub.on('message', (_ch, msg) => {
+  try {
+    const { event, data } = JSON.parse(msg)
+    sendEvent(event, data)
+  } catch (e) {
+    app.log.error(e, 'sse relay parse error')
+  }
+})
+app.log.info('SSE relay enabled')
+
 async function main() {
     await app.register(cors, {
-      origin: [CONSOLE_ORIGIN, 'http://127.0.0.1:5173'],
+      origin: [CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+      methods: ['GET','POST','OPTIONS'],
+      allowedHeaders: ['Content-Type','If-Match','If-None-Match','x-bot-secret'],
       credentials: true,
-      allowedHeaders:  ['content-type', 'x-bot-id', 'x-bot-secret']
     })
   
     await app.register(multipart)
+
+    // Форсируем CORS + SSE-заголовки именно для /events
+    app.addHook('onSend', async (req, reply, payload) => {
+      if (req.url === '/events') {
+        const origin = String(req.headers.origin || '')
+        if ([CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].includes(origin)) {
+          reply.header('Access-Control-Allow-Origin', origin)
+          reply.header('Access-Control-Allow-Credentials', 'true')
+          reply.header('Vary', 'Origin')
+        }
+        reply.header('Content-Type', 'text/event-stream')
+        reply.header('Cache-Control', 'no-cache')
+        reply.header('Connection', 'keep-alive')
+      }
+      return payload as any
+    })
   
     await ensureTables()
     // preload active revisions из PG (чтобы после рестарта помнить flip)
@@ -307,28 +336,31 @@ async function main() {
 
   // SSE
   app.get('/events', async (req, reply) => {
-    const origin = (req.headers.origin as string) || ''
-    const allowedOrigins = new Set([CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'])
-    if (allowedOrigins.has(origin)) {
-      reply.header('Access-Control-Allow-Origin', origin)
-      reply.header('Vary', 'Origin')
-    }
-
-    reply
-      .header('Cache-Control', 'no-cache')
-      .header('Content-Type', 'text/event-stream')
-      .header('Connection', 'keep-alive')
-      .code(200)
-
-    // первая «пустая» строка по протоколу SSE
+    // Заголовки уже проставит onSend-хук; тут просто откроем поток
+    reply.code(200)
     reply.raw.write('\n')
     clients.add(reply.raw)
-    req.raw.on('close', () => clients.delete(reply.raw))
+    req.raw.on('close', () => { clients.delete(reply.raw) })
   })
   // --- heartbeat раз в 15 сек
    setInterval(() => {
         sendEvent('ping', { t: Date.now() })
     }, 15_000)
+
+  // На всякий случай — форс-ACAO именно для /events
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.url === '/events') {
+      const origin = String(req.headers.origin || '')
+      const allowed = new Set([CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'])
+      if (allowed.has(origin)) {
+        reply.header('Access-Control-Allow-Origin', origin)
+        reply.header('Access-Control-Allow-Credentials', 'true')
+        reply.header('Vary', 'Origin')
+      }
+      reply.header('Content-Type', 'text/event-stream')
+    }
+    return payload as any
+  })
 
   // ===== /spec ===== (создать новую версию Spec; immutable в PG)
   // CORS preflight for /spec (explicit to ensure custom headers are allowed)

@@ -14,6 +14,8 @@ const PG_USER = process.env.PG_USER || 'tgpt5'
 const PG_PASS = process.env.PG_PASSWORD || 'tgpt5'
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 
+console.log('worker started. REDIS_URL=', REDIS_URL)
+
 const redis = new Redis(REDIS_URL)
 const ssePub = new Redis(REDIS_URL) // для pub/sub
 const pool = new Pool({ host: PG_HOST, port: PG_PORT, database: PG_DB, user: PG_USER, password: PG_PASS })
@@ -81,11 +83,14 @@ async function loop() {
   // простой опрос доступных очередей и ожидание сообщений
   while (true) {
     try {
+      console.log('loop tick')
       const keys = await redis.keys('q:in:*')
       if (keys.length === 0) { await new Promise(r => setTimeout(r, 250)); continue }
+      else { console.log('found queues', keys) }
       const res = await redis.brpop(keys, 2) // ждём до 2с любую очередь
       if (res) {
-        const [_key, payload] = res
+        const [key, payload] = res
+        console.log('brpop from', key)
         await processOne(payload)
       }
     } catch (e) {
