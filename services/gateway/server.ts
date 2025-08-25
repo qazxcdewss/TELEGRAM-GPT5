@@ -10,7 +10,8 @@ import { Pool } from 'pg'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
-import { generateBotJs } from './generator'
+import { generateBotJs as generateWithEngine } from './generator-engine'
+import { toInt, byteLenUtf8 } from '../../lib/ints'
 
 
 
@@ -493,14 +494,15 @@ async function main() {
 
   // ===== /generate ===== (собрать артефакты в S3 + вставить ревизию в PG)
   app.post('/generate', async (req, reply) => {
-    const { botId, specVersion, model = 'gpt-5', seed = 0 } = req.body as any
+    const { botId, specVersion, model = 'gpt-5', seed = 0, engine = 'local' } = req.body as any
+    const specVersionInt = toInt(specVersion, 0)
 
     // ищем в памяти, иначе тянем из PG
-    let found = (specStore[botId] || []).find(x => x.version === Number(specVersion))
+    let found = (specStore[botId] || []).find(x => x.version === specVersionInt)
     if (!found) {
       const row = await pool.query(
         'SELECT id, canonical_spec::text AS canonical_text FROM spec_versions WHERE bot_id=$1 AND id=$2 LIMIT 1',
-        [botId, Number(specVersion)]
+        [botId, specVersionInt]
       )
       if (!row.rowCount) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Spec version not found' } })
       const canonicalText = row.rows[0].canonical_text as string
@@ -524,25 +526,39 @@ async function main() {
     const baseKey  = `bots/${botId}/${revHash}`
     const specJson = found.canonical
     const specObj  = JSON.parse(specJson)
-    const botJs    = generateBotJs(specObj)
-    const revJson  = JSON.stringify({
-      revHash, specVersion,
+    const botJs    = await generateWithEngine(specObj, engine)
+
+    // вычисления через безопасные инт-помощники
+    const specBytes  = toInt(byteLenUtf8(specJson))
+    const botJsBytes = toInt(byteLenUtf8(botJs))
+    const flowsCount = toInt(Array.isArray((specObj as any)?.flows) ? (specObj as any).flows.length : 0)
+    const stepsCount = toInt(Array.isArray((specObj as any)?.flows)
+      ? (specObj as any).flows.reduce((acc: number, f: any) => acc + (Array.isArray(f?.steps) ? f.steps.length : 0), 0)
+      : 0)
+    const engineId  = toInt(engine === 'gpt5' ? 1 : 0)
+    ;[specBytes, botJsBytes, flowsCount, stepsCount, engineId].forEach((v, i) => { if (!Number.isFinite(v)) throw new Error(`BAD_INT_PARAM_$${i+1}`) })
+
+    // rev.json в S3
+    const revObj = {
+      revHash,
+      specVersion: specVersionInt,
       artifacts: { botJs: `s3://${S3_BUCKET}/${baseKey}/bot.js`, specJson: `s3://${S3_BUCKET}/${baseKey}/spec.json`, revJson: `s3://${S3_BUCKET}/${baseKey}/rev.json` },
-      build: buildMeta,
+      build: { ...buildMeta, flows: flowsCount, steps: stepsCount, engine },
       hashes: { specSha256, botJsSha256: sha256(botJs) },
-      sizes:  { specJson: Buffer.byteLength(specJson), botJs: Buffer.byteLength(botJs) },
+      sizes:  { specBytes, botJsBytes },
       security: { outboundAllowList: [], maxApiResponseKB: 64, timeoutMs: 5000 },
       author: 'system'
-    }, null, 2)
+    }
+    const revStr = JSON.stringify(revObj)
 
     await putS3(`${baseKey}/spec.json`, specJson)
     await putS3(`${baseKey}/bot.js`,   botJs)
-    await putS3(`${baseKey}/rev.json`, revJson)
+    await putS3(`${baseKey}/rev.json`, revStr)
 
     // запись в PG (revisions)
     const specRow = await pool.query(
       'SELECT id FROM spec_versions WHERE bot_id=$1 AND id=$2 LIMIT 1',
-      [botId, Number(specVersion)]
+      [botId, specVersionInt]
     )
     const specVersionId = specRow.rowCount ? specRow.rows[0].id : found.version
     await pool.query(

@@ -15,6 +15,8 @@ export default function App() {
   const [selectedRev, setSelectedRev] = useState<string | null>(null)
   const [log, setLog] = useState<string[]>([])
   const esRef = useRef<EventSource | null>(null)
+  const [engine, setEngine] = useState<'local'|'gpt5'>('local')
+  const [testText, setTestText] = useState<string>('/start')
 
   const append = (line: string) =>
     setLog((l) => [new Date().toLocaleTimeString() + ' ' + line, ...l].slice(0, 200))
@@ -71,21 +73,67 @@ export default function App() {
   }
 
   async function generate() {
-    // find latest spec version first
-    const last = await fetch(`${API}/spec/latest?botId=${encodeURIComponent(BOT_ID)}`).then((r) =>
-      r.ok ? r.json() : null
-    )
-    const specVersion = last?.version
-    if (!specVersion) { append('Generate ERROR: no spec version'); return }
+    try {
+      append('[ui] generate clicked')
 
-    const r = await fetch(`${API}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ botId: BOT_ID, specVersion }),
-    })
-    if (!r.ok) { append('Generate ERROR: ' + (await r.text())); return }
-    const { taskId } = await r.json()
-    append(`Generate started task=${taskId} v=${specVersion}`)
+      const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || API
+
+      let specVersionId: number | undefined
+      const specTrim = (spec || '').trim()
+      if (specTrim) {
+        let parsed: any
+        try {
+          parsed = JSON.parse(specTrim)
+        } catch (e) {
+          append('[ui] spec is not valid JSON')
+          alert('Spec is not valid JSON')
+          return
+        }
+        const botId = parsed?.meta?.botId ?? BOT_ID
+        const r = await fetch(`${API_BASE}/spec`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ botId, spec: parsed })
+        })
+        if (!r.ok) {
+          const t = await r.text()
+          append('[spec] error ' + t)
+          alert('POST /spec failed: ' + t)
+          return
+        }
+        const j = await r.json()
+        specVersionId = j?.specVersionId ?? j?.version
+        append(`[spec] created specVersionId=${specVersionId}`)
+      }
+
+      const body: any = { engine, botId: BOT_ID }
+      if (specVersionId) body.specVersion = specVersionId
+
+      const r2 = await fetch(`${API_BASE}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      if (!r2.ok) {
+        const t = await r2.text()
+        append('[gen] error ' + t)
+        alert('POST /generate failed: ' + t)
+        return
+      }
+      const j2 = await r2.json().catch(() => null)
+      if (j2?.taskId) {
+        append(`Generate started task=${j2.taskId} v=${specVersionId ?? ''}`)
+      } else {
+        const txt = typeof j2 === 'string' ? j2 : JSON.stringify(j2)
+        append('[gen] ok ' + (txt || '').slice(0, 300))
+      }
+
+      try { await refresh?.() } catch {}
+    } catch (e: any) {
+      console.error(e)
+      append('[gen] exception ' + (e?.message || e))
+      alert('Generate exception: ' + (e?.message || String(e)))
+    }
   }
 
   async function deploy() {
@@ -101,17 +149,21 @@ export default function App() {
   }
 
   async function testWebhook() {
+    const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
+    const BOT_ID_ANY = (window as any).BOT_ID || 1
+    const BOT_SECRET_ANY = (window as any).BOT_SECRET || 'dev'
+
     const sampleUpdate = {
       update_id: Math.floor(Math.random() * 1e9),
-      message: { chat: { id: 12345, type: 'private' }, text: '/start' }
+      message: { chat: { id: 12345, type: 'private' }, text: testText || '/start' }
     }
-    const r = await fetch(`${API}/wh/${BOT_ID}`, {
+    const r = await fetch(`${API_BASE}/wh/${BOT_ID_ANY}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_SECRET },
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_SECRET_ANY },
       body: JSON.stringify(sampleUpdate),
     })
     const t = await r.text()
-    append(`/wh echo: ${t.slice(0, 200)}`)
+    append(`[wh] echo: ${t.slice(0, 200)}`)
   }
 
   async function fetchMetrics() {
@@ -135,9 +187,21 @@ export default function App() {
             onChange={(e) => setSpec(e.target.value)}
             style={{ width: '100%', height: 220, fontFamily: 'ui-monospace', fontSize: 13 }}
           />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={uploadSpec}>Upload /spec</button>
             <button onClick={generate}>Generate</button>
+
+            <label style={{ marginLeft: 8, fontSize: 13 }}>
+              Engine:&nbsp;
+              <select
+                value={engine}
+                onChange={(e) => setEngine(e.target.value as 'local'|'gpt5')}
+                style={{ padding: '4px 6px', fontSize: 13 }}
+              >
+                <option value="local">local</option>
+                <option value="gpt5">gpt5</option>
+              </select>
+            </label>
           </div>
         </div>
 
@@ -165,7 +229,15 @@ export default function App() {
 
         <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
           <h2>3) Webhook test → echo</h2>
-          <button onClick={testWebhook}>Send test /wh</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              value={testText}
+              onChange={(e) => setTestText(e.target.value)}
+              placeholder="/start"
+              style={{ padding: '6px 8px', fontSize: 13, minWidth: 200 }}
+            />
+            <button onClick={testWebhook}>Send test /wh</button>
+          </div>
         </div>
 
         <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
