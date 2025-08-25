@@ -114,6 +114,15 @@ export default function App() {
     append(`/wh echo: ${t.slice(0, 200)}`)
   }
 
+  async function fetchMetrics() {
+    const r = await fetch(`${API}/metrics`).then(r=>r.json())
+    append('[metrics] ' + JSON.stringify(r))
+  }
+  async function fetchDLQ() {
+    const r = await fetch(`${API}/dlq/${BOT_ID}`).then(r=>r.json())
+    append('[dlq] ' + JSON.stringify(r))
+  }
+
   return (
     <div style={{ fontFamily: 'ui-sans-serif, system-ui', padding: 20 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Bot Console (MVP)</h1>
@@ -163,6 +172,10 @@ export default function App() {
           <h2>SSE / Logs</h2>
           <div style={{ fontFamily: 'ui-monospace', fontSize: 12, whiteSpace: 'pre-wrap', lineHeight: 1.35, maxHeight: 300, overflow: 'auto' }}>
             {log.map((x, i) => <div key={i}>{x}</div>)}
+          </div>
+          <div style={{ display:'flex', gap:8, marginTop:8 }}>
+            <button onClick={fetchMetrics}>Load metrics</button>
+            <button onClick={fetchDLQ}>Load DLQ</button>
           </div>
         </div>
       </section>

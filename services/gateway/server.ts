@@ -336,8 +336,28 @@ async function main() {
 
   // SSE
   app.get('/events', async (req, reply) => {
-    // Заголовки уже проставит onSend-хук; тут просто откроем поток
+    // Дублируем выставление заголовков прямо тут и отправим их до первой записи
+    const origin = String(req.headers.origin || '')
+    const allowed = new Set([CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'])
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    }
+    if (allowed.has(origin)) {
+      headers['Access-Control-Allow-Origin'] = origin
+      headers['Access-Control-Allow-Credentials'] = 'true'
+      headers['Vary'] = 'Origin'
+    }
+
     reply.code(200)
+    reply.hijack()
+    try {
+      for (const [k, v] of Object.entries(headers)) reply.raw.setHeader(k, v)
+      ;(reply.raw as any).flushHeaders?.()
+    } catch {}
+
+    // Стартовый байт по протоколу SSE
     reply.raw.write('\n')
     clients.add(reply.raw)
     req.raw.on('close', () => { clients.delete(reply.raw) })
@@ -553,6 +573,23 @@ async function main() {
       [botId]
     )
     return { items: r.rows }
+  })
+
+  // ===== Metrics & DLQ =====
+  // Метрики из Redis (простейшие счётчики)
+  app.get('/metrics', async () => {
+    const keys = await redis.keys('m:*')
+    const vals = keys.length ? await redis.mget(keys) : []
+    const obj: Record<string, number> = {}
+    keys.forEach((k, i) => obj[k] = Number(vals[i] || 0))
+    return obj
+  })
+
+  // Последние ошибки из DLQ
+  app.get('/dlq/:botId', async (req) => {
+    const { botId } = req.params as any
+    const items = await redis.lrange(`dlq:in:${botId}`, 0, 49)
+    return { items: items.map(x => JSON.parse(x)) }
   })
 
   // ===== /revisions/:revHash ===== — из PG
