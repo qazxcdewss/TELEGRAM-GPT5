@@ -528,6 +528,9 @@ async function main() {
     const specObj  = JSON.parse(specJson)
     const botJs    = await generateWithEngine(specObj, engine)
 
+    // post-validated successfully
+    try { sendEvent('GeneratePostValidated', { taskId, botId, revHash, engine }) } catch {}
+
     // вычисления через безопасные инт-помощники
     const specBytes  = toInt(byteLenUtf8(specJson))
     const botJsBytes = toInt(byteLenUtf8(botJs))

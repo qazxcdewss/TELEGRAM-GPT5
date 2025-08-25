@@ -40,7 +40,16 @@ export default function App() {
 
     es.onopen = () => append('[sse] open');
     es.onerror = (e) => append('[sse] error ' + (e ? '(see console)' : ''));
-    es.onmessage = (e) => append('[sse] message ' + (e as MessageEvent).data);
+    es.onmessage = (e) => {
+      try {
+        const ev = JSON.parse((e as MessageEvent).data as any)
+        if (ev?.type === 'GeneratePostValidated') {
+          append(`[gen] validated rev=${ev.revHash} (${ev.engine})`)
+          return
+        }
+      } catch {}
+      append('[sse] message ' + (e as MessageEvent).data)
+    };
 
     es.addEventListener('GenerateStarted',   (e) => append('[gen] started ' + (e as MessageEvent).data));
     es.addEventListener('GenerateSucceeded', (e) => append('[gen] ok ' + (e as MessageEvent).data));
@@ -93,7 +102,7 @@ export default function App() {
         const r = await fetch(`${API_BASE}/spec`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ botId, spec: parsed })
+          body: JSON.stringify(parsed)
         })
         if (!r.ok) {
           const t = await r.text()
@@ -149,17 +158,17 @@ export default function App() {
   }
 
   async function testWebhook() {
-    const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
-    const BOT_ID_ANY = (window as any).BOT_ID || 1
-    const BOT_SECRET_ANY = (window as any).BOT_SECRET || 'dev'
+    const API = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
+    const BOT_ID = (window as any).BOT_ID || (import.meta as any).env?.VITE_BOT_ID || 'my-bot-1'
+    const BOT_SECRET = (window as any).BOT_SECRET || (import.meta as any).env?.VITE_BOT_SECRET || 'dev'
 
     const sampleUpdate = {
       update_id: Math.floor(Math.random() * 1e9),
       message: { chat: { id: 12345, type: 'private' }, text: testText || '/start' }
     }
-    const r = await fetch(`${API_BASE}/wh/${BOT_ID_ANY}`, {
+    const r = await fetch(`${API}/wh/${encodeURIComponent(BOT_ID)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_SECRET_ANY },
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_SECRET },
       body: JSON.stringify(sampleUpdate),
     })
     const t = await r.text()
