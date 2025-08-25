@@ -13,6 +13,25 @@ const BANNED_SUBSTRINGS = [
   'Worker(',
 ];
 
+function utf8ByteLength(str: string): number {
+  let bytes = 0;
+  for (let i = 0; i < str.length; i++) {
+    const codeUnit = str.charCodeAt(i);
+    if (codeUnit < 0x80) {
+      bytes += 1;
+    } else if (codeUnit < 0x800) {
+      bytes += 2;
+    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdfff) {
+      // surrogate pair => 4 bytes in UTF-8
+      bytes += 4;
+      i++; // skip the next code unit of the pair
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
 export function stripMarkdownFences(code: string): string {
   // вырезаем ```js ... ```
   const fence = code.match(/```[\s\S]*?```/);
@@ -24,7 +43,7 @@ export function stripMarkdownFences(code: string): string {
 export function postValidateBotJs(js: string, maxKB = 64) {
   if (!js || typeof js !== 'string') throw new Error('BOT_JS_EMPTY');
 
-  const sizeKB = Buffer.byteLength(js, 'utf8') / 1024;
+  const sizeKB = utf8ByteLength(js) / 1024;
   if (sizeKB > maxKB) throw new Error(`BOT_JS_TOO_LARGE_${Math.ceil(sizeKB)}KB`);
 
   for (const bad of BANNED_SUBSTRINGS) {

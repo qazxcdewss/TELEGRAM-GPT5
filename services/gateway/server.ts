@@ -494,8 +494,8 @@ async function main() {
 
   // ===== /generate ===== (собрать артефакты в S3 + вставить ревизию в PG)
   app.post('/generate', async (req, reply) => {
-    const { botId, specVersion, model = 'gpt-5', seed = 0, engine = 'local' } = req.body as any
-    const specVersionInt = toInt(specVersion, 0)
+    const { botId, specVersion, specVersionId, model = 'gpt-5', seed = 0, engine = 'local' } = req.body as any
+    const specVersionInt = toInt(specVersionId ?? specVersion, 0)
 
     // ищем в памяти, иначе тянем из PG
     let found = (specStore[botId] || []).find(x => x.version === specVersionInt)
@@ -515,7 +515,7 @@ async function main() {
     }
 
     const taskId = `gen_${Date.now()}`
-    sendEvent('GenerateStarted', { taskId, specVersion })
+    sendEvent('GenerateStarted', { taskId, specVersion: specVersionInt })
 
     await ensureBucket()
 
@@ -563,14 +563,14 @@ async function main() {
       'SELECT id FROM spec_versions WHERE bot_id=$1 AND id=$2 LIMIT 1',
       [botId, specVersionInt]
     )
-    const specVersionId = specRow.rowCount ? specRow.rows[0].id : found.version
+    const specVersionIdRow = specRow.rowCount ? specRow.rows[0].id : found.version
     await pool.query(
       'INSERT INTO revisions (rev_hash, bot_id, spec_version_id, key_prefix) VALUES ($1,$2,$3,$4) ON CONFLICT (rev_hash) DO NOTHING',
-      [revHash, botId, specVersionId, baseKey]
+      [revHash, botId, specVersionIdRow, baseKey]
     )
 
     // mirror in-memory
-    const meta = { botId, revHash, specVersion, createdAt: new Date().toISOString(), keyPrefix: baseKey }
+    const meta = { botId, revHash, specVersion: specVersionInt, createdAt: new Date().toISOString(), keyPrefix: baseKey }
     ;(revStore[botId] ||= []).push(meta)
     revByHash.set(revHash, meta)
 
@@ -659,6 +659,16 @@ async function main() {
 
     deployments[taskId].status = 'flipped'
     sendEvent('DeployFlipped', { taskId, revHash })
+
+    // 1) попросим воркеры прогреть рантайм
+    try { await redis.publish('deploy:prewarm', JSON.stringify({ botId, revHash })) } catch {}
+    // 2) опционально сообщим в SSE, что начат prewarm
+    try {
+      await redis.publish('sse', JSON.stringify({
+        event: 'DeployPrewarmStarted',
+        data: { botId, revHash }
+      }))
+    } catch {}
     return reply.code(202).send({ taskId, activeRevHash: revHash })
   })
 

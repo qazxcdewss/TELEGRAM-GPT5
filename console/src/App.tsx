@@ -55,6 +55,14 @@ export default function App() {
     es.addEventListener('GenerateSucceeded', (e) => append('[gen] ok ' + (e as MessageEvent).data));
     es.addEventListener('DeployStarted',     (e) => append('[deploy] started ' + (e as MessageEvent).data));
     es.addEventListener('DeployFlipped',     (e) => append('[deploy] flipped ' + (e as MessageEvent).data));
+    es.addEventListener('DeployPrewarmStarted', (e) => {
+      try { const d = JSON.parse((e as MessageEvent).data); append(`[deploy] prewarm started rev=${d.revHash || d.rev_hash}`) }
+      catch { append('[deploy] prewarm started ' + (e as MessageEvent).data) }
+    });
+    es.addEventListener('DeployPrewarmReady', (e) => {
+      try { const d = JSON.parse((e as MessageEvent).data); append(`[deploy] prewarm ready rev=${d.revHash || d.rev_hash}`) }
+      catch { append('[deploy] prewarm ready ' + (e as MessageEvent).data) }
+    });
 
     es.addEventListener('MessageProcessed', (e) => {
       const data = JSON.parse((e as MessageEvent).data);
@@ -145,6 +153,37 @@ export default function App() {
     }
   }
 
+  async function uploadGenDeploy() {
+    try {
+      append('[ui] upload→generate→deploy')
+      const API = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
+
+      // 1) parse spec
+      let parsed: any
+      try { parsed = JSON.parse((spec || '').trim()) } catch { alert('Spec JSON invalid'); return }
+
+      // 2) /spec
+      const r1 = await fetch(`${API}/spec`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(parsed) })
+      if (!r1.ok) { const t = await r1.text(); append('[spec] error '+t); alert(t); return }
+      const j1 = await r1.json(); const specVersionId = j1.specVersionId ?? j1.version; append(`[spec] ok v=${specVersionId}`)
+
+      // 3) /generate
+      const r2 = await fetch(`${API}/generate`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ engine, specVersionId }) })
+      if (!r2.ok) { const t = await r2.text(); append('[gen] error '+t); alert(t); return }
+      const j2 = await r2.json().catch(async()=>({ revHash: (await r2.text()) }))
+      const revHash = (j2 as any).revHash || (j2 as any).rev_hash
+      append(`[gen] ok rev=${revHash}`)
+
+      // 4) /deploy
+      const botId = String(parsed?.meta?.botId ?? 'my-bot-1')
+      const r3 = await fetch(`${API}/deploy`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ botId, revHash }) })
+      if (!r3.ok) { const t = await r3.text(); append('[dep] error '+t); alert(t); return }
+      append('[dep] ok')
+    } catch (e:any) {
+      append('[ui] oops '+(e?.message||e))
+    }
+  }
+
   async function deploy() {
     if (!selectedRev) { append('Select a revision'); return }
     const r = await fetch(`${API}/deploy`, {
@@ -199,6 +238,7 @@ export default function App() {
           <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={uploadSpec}>Upload /spec</button>
             <button onClick={generate}>Generate</button>
+            <button onClick={uploadGenDeploy}>Upload→Generate→Deploy</button>
 
             <label style={{ marginLeft: 8, fontSize: 13 }}>
               Engine:&nbsp;
