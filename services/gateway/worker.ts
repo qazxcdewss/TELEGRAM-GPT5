@@ -3,6 +3,7 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { IVMRunner } from '../../runner/ivm-runtime'
+import { sendTelegramText } from './telegram'
 import { getRunner, setRunner } from '../../runner/cache'
 import { allow as allowRate } from '../../lib/ratelimit'
 
@@ -17,40 +18,49 @@ const PG_USER = process.env.PG_USER || 'tgpt5'
 const PG_PASS = process.env.PG_PASSWORD || 'tgpt5'
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 const QUEUE_TTL_MS = Number(process.env.QUEUE_TTL_MS || 60000)
+const TICK_DEBUG = process.env.DEBUG_WORKER === '1'
+const TICK_MS = Number(process.env.DEBUG_TICK_MS || 15000)
+let lastTick = 0
 
 console.log('worker started. REDIS_URL=', REDIS_URL)
 
 const redis = new Redis(REDIS_URL)
 const ssePub = new Redis(REDIS_URL) // для pub/sub
 const sub = new Redis(REDIS_URL)
+let PREWARM_SUBSCRIBED = false
 const pool = new Pool({ host: PG_HOST, port: PG_PORT, database: PG_DB, user: PG_USER, password: PG_PASS })
 const s3 = new S3Client({
   endpoint: S3_ENDPOINT, region: 'us-east-1', forcePathStyle: true,
   credentials: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY }
 })
 
-// Подписка на prewarm: греем рантайм и подтверждаем
+// Подписка на prewarm: греем рантайм и подтверждаем (однократно)
 ;(async () => {
-  try { await sub.subscribe('deploy:prewarm') } catch (e) { console.error('sub deploy:prewarm failed', e) }
-  sub.on('message', async (ch, payload) => {
-    if (ch !== 'deploy:prewarm') return
-    try {
-      const { botId, revHash } = JSON.parse(payload)
-      // подготовим/прогреем рантайм
-      try {
-        const runner = await getOrCreateRunner(botId, revHash, loadBotJsFromMinio)
-        // ping без реальных outbound-действий
-        try { await runner.handleUpdate({ botId, chat: { id: '__prewarm__', type: 'private' }, state: {} }, {
-          sendMessage: async () => {}, http: async () => ({ status: 200, body: {} }), goto: async () => {}, getState: async () => ({}), setState: async () => {}
-        }) } catch {}
-      } catch (e) {
-        console.error('[prewarm runner failed]', e)
-      }
-      await ssePub.publish('sse', JSON.stringify({ event: 'DeployPrewarmReady', data: { botId, revHash } }))
-    } catch (e) {
-      console.error('[prewarm failed]', e)
+  try {
+    if (!PREWARM_SUBSCRIBED) {
+      await sub.subscribe('deploy:prewarm')
+      sub.on('message', async (ch, payload) => {
+        if (ch !== 'deploy:prewarm') return
+        try {
+          const { botId, revHash } = JSON.parse(payload)
+          // подготовим/прогреем рантайм
+          try {
+            const runner = await getOrCreateRunner(botId, revHash, loadBotJsFromMinio)
+            // ping без реальных outbound-действий
+            try { await runner.handleUpdate({ botId, chat: { id: '__prewarm__', type: 'private' }, state: {} }, {
+              sendMessage: async () => {}, http: async () => ({ status: 200, body: {} }), goto: async () => {}, getState: async () => ({}), setState: async () => {}
+            }) } catch {}
+          } catch (e) {
+            console.error('[prewarm runner failed]', e)
+          }
+          await ssePub.publish('sse', JSON.stringify({ event: 'DeployPrewarmReady', data: { botId, revHash } }))
+        } catch (e) {
+          console.error('[prewarm failed]', e)
+        }
+      })
+      PREWARM_SUBSCRIBED = true
     }
-  })
+  } catch (e) { console.error('sub deploy:prewarm failed', e) }
 })()
 
 function qKey(botId: string, chatId: string|number) { return `q:in:${botId}:${chatId}` }
@@ -94,10 +104,7 @@ async function saveState(botId: string, chatId: string|number, s: any): Promise<
   await redis.set(`state:${botId}:${chatId}`, JSON.stringify(s))
 }
 
-async function sendTelegramText(botId: string, chatId: string|number, text: string): Promise<void> {
-  // В этой MVP-версии просто отправим событие в SSE вместо реального Telegram API
-  try { await ssePub.publish('sse', JSON.stringify({ event: 'TelegramSent', data: { botId, chatId, text } })) } catch {}
-}
+// sendTelegramText перенесён в ./telegram и импортируется выше
 
 async function enqueueFlow(botId: string, chatId: string|number, to: string, _payload: any): Promise<void> {
   // Простейшая постановка новой задачи в очередь текущего чата
@@ -141,7 +148,14 @@ async function processOne(payload: string) {
 
     const tools = {
       sendMessage: async (p: { type: 'text'; text: string }) => {
-        await sendTelegramText(msg.botId, msg.chatId, p.text)
+        // 1) реально отправляем
+        const res = await sendTelegramText(msg.botId, msg.chatId, p?.text ?? '')
+
+        // 2) шлём в SSE, чтобы было видно в Console
+        await ssePub.publish('sse', JSON.stringify({
+          event: 'TelegramSent',
+          data: { botId: msg.botId, chatId: msg.chatId, text: p?.text ?? '', messageId: (res as any)?.message_id }
+        }))
       },
       http: async (r: { url: string; method?: 'GET'|'POST'; body?: any }) => {
         const method = r.method || 'GET'
@@ -160,6 +174,11 @@ async function processOne(payload: string) {
       getState: async () => await loadState(msg.botId, msg.chatId),
       setState: async (s: any) => { await saveState(msg.botId, msg.chatId, s) },
     }
+
+    await ssePub.publish('sse', JSON.stringify({
+      event: 'RuntimeEngine',
+      data: { botId: msg.botId, revHash: msg.revHash, engine: 'isolated-vm' }
+    }))
 
     await runner.handleUpdate(ctx, tools)
 
@@ -182,7 +201,10 @@ async function loop() {
   // простой опрос доступных очередей и ожидание сообщений
   while (true) {
     try {
-      console.log('loop tick')
+      if (TICK_DEBUG && Date.now() - lastTick > TICK_MS) {
+        console.log('[worker] idle…')
+        lastTick = Date.now()
+      }
       const keys = await redis.keys('q:in:*')
       if (keys.length === 0) { await new Promise(r => setTimeout(r, 250)); continue }
       else { console.log('found queues', keys) }

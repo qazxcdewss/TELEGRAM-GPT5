@@ -681,9 +681,12 @@ async function main() {
 
   // ===== /wh/:botId ===== (Runtime echo)
   app.post('/wh/:botId', async (req, reply) => {
-    if ((req.headers['x-bot-secret'] as string) !== BOT_SECRET)
-      return reply.code(401).send({ error: { code: 'UNAUTHORIZED' } })
-  
+    const s1 = req.headers['x-bot-secret'] as string | undefined
+    const s2 = req.headers['x-telegram-bot-api-secret-token'] as string | undefined
+    if ((s1 || s2) !== BOT_SECRET) {
+      reply.code(403).send({ error: 'FORBIDDEN' }); return
+    }
+
     const { botId } = req.params as any
     const body: any = req.body
     const updateId = body?.update_id
