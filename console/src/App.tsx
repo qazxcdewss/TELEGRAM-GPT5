@@ -39,17 +39,8 @@ export default function App() {
     esRef.current = es;
 
     es.onopen = () => append('[sse] open');
-    es.onerror = (e) => append('[sse] error ' + (e ? '(see console)' : ''));
-    es.onmessage = (e) => {
-      try {
-        const ev = JSON.parse((e as MessageEvent).data as any)
-        if (ev?.type === 'GeneratePostValidated') {
-          append(`[gen] validated rev=${ev.revHash} (${ev.engine})`)
-          return
-        }
-      } catch {}
-      append('[sse] message ' + (e as MessageEvent).data)
-    };
+    es.onerror = () => append('[sse] error');
+    // убираем общий onmessage-спам: слушаем только нужные именованные события ниже
 
     es.addEventListener('GenerateStarted',   (e) => append('[gen] started ' + (e as MessageEvent).data));
     es.addEventListener('GenerateSucceeded', (e) => append('[gen] ok ' + (e as MessageEvent).data));
@@ -64,10 +55,29 @@ export default function App() {
       catch { append('[deploy] prewarm ready ' + (e as MessageEvent).data) }
     });
 
+    // RuntimeEngine — показываем какой движок исполняет
+    es.addEventListener('RuntimeEngine', (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data)
+        append(`[engine] ${d.engine}`)
+      } catch { append('[engine] ' + (e as MessageEvent).data) }
+    })
+
+    // TelegramSent — отображаем отправленный текст и messageId
+    es.addEventListener('TelegramSent', (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data)
+        append(`[tg] ${d.text} ${d.messageId ? `(id=${d.messageId})` : ''}`)
+      } catch { append('[tg] ' + (e as MessageEvent).data) }
+    })
+
+    // MessageProcessed — показываем только ошибки, «ok» скрываем для тишины
     es.addEventListener('MessageProcessed', (e) => {
-      const data = JSON.parse((e as MessageEvent).data);
-      append(`[msg] bot=${data.botId} chat=${data.chatId} ` + (data.error ? 'ERROR ' + data.error : JSON.stringify(data.response)));
-    });
+      try {
+        const data = JSON.parse((e as MessageEvent).data)
+        if (data?.error) append(`[msg] bot=${data.botId} chat=${data.chatId} ERROR ${data.error}`)
+      } catch {}
+    })
 
     return () => es.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps

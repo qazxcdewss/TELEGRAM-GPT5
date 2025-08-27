@@ -3,10 +3,15 @@ import crypto from 'node:crypto'
 
 // A) токен из ENV (по botId)
 export async function getTelegramToken(botId: string): Promise<string> {
-  const envKey = `TELEGRAM_TOKEN_${botId}`
-  const t = process.env[envKey]
-  if (!t) throw new Error(`NO_TELEGRAM_TOKEN_${botId}`)
-  return t
+  const candidates = [
+    `TELEGRAM_TOKEN_${botId}`,
+    `TELEGRAM_TOKEN_${botId.replace(/[^A-Za-z0-9_]/g, '_')}`,
+  ]
+  for (const k of candidates) {
+    const v = process.env[k]
+    if (v) return v
+  }
+  throw new Error(`NO_TELEGRAM_TOKEN_${botId}`)
 }
 
 // (опционально) подпись запроса, если когда-то понадобится

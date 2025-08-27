@@ -23,6 +23,8 @@ const TICK_MS = Number(process.env.DEBUG_TICK_MS || 15000)
 let lastTick = 0
 
 console.log('worker started. REDIS_URL=', REDIS_URL)
+console.log('worker started. TELEGRAM_TOKEN_my-bot-1:', !!process.env['TELEGRAM_TOKEN_my-bot-1'])
+console.log('worker started. TELEGRAM_TOKEN_my_bot_1:', !!(process.env as any).TELEGRAM_TOKEN_my_bot_1)
 
 const redis = new Redis(REDIS_URL)
 const ssePub = new Redis(REDIS_URL) // для pub/sub
@@ -144,10 +146,17 @@ async function processOne(payload: string) {
       botId: msg.botId,
       chat: { id: msg.chatId, type: 'private' },
       state: await loadState(msg.botId, msg.chatId),
+      message: { chat: { id: msg.chatId, type: 'private' }, text: msg.text ?? '' },
     }
 
     const tools = {
       sendMessage: async (p: { type: 'text'; text: string }) => {
+        console.log('[worker] sendMessage called:', p)
+        await ssePub.publish('sse', JSON.stringify({
+          event: 'ToolSendMessage',
+          data: { botId: msg.botId, chatId: msg.chatId, text: p?.text ?? '' }
+        }))
+
         // 1) реально отправляем
         const res = await sendTelegramText(msg.botId, msg.chatId, p?.text ?? '')
 
@@ -180,7 +189,30 @@ async function processOne(payload: string) {
       data: { botId: msg.botId, revHash: msg.revHash, engine: 'isolated-vm' }
     }))
 
-    await runner.handleUpdate(ctx, tools)
+    const res = await runner.handleUpdate(ctx, tools)
+    console.log('[worker] ivm result:', res)
+
+    // fallback: если бот вернул ответ — отправим сами (поддержим несколько форм)
+    let fallbackText: string | undefined
+    if (res && typeof res === 'object') {
+      if ((res as any).type === 'text' && (res as any).text) fallbackText = String((res as any).text)
+      else if ((res as any).text) fallbackText = String((res as any).text)
+      else if ((res as any).message?.text) fallbackText = String((res as any).message.text)
+    } else if (typeof res === 'string' && res.trim()) {
+      fallbackText = res
+    }
+    if (fallbackText) {
+      console.log('[worker] fallback send:', fallbackText)
+      try {
+        const r2 = await sendTelegramText(msg.botId, msg.chatId, fallbackText)
+        await ssePub.publish('sse', JSON.stringify({
+          event: 'TelegramSent',
+          data: { botId: msg.botId, chatId: msg.chatId, text: fallbackText, messageId: (r2 as any)?.message_id }
+        }))
+      } catch (e) {
+        console.error('[worker] fallback send failed:', e)
+      }
+    }
 
     await redis.pipeline()
       .incr('m:processed')

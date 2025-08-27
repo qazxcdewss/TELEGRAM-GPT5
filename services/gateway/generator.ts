@@ -30,7 +30,8 @@ module.exports.handleUpdate = async function handleUpdate(ctx){
     const step = flow.steps[i];
 
     if (step.type === "sendMessage") {
-      return { type:"text", text: step.text || "" };
+      await ctx.sendMessage({ type: 'text', text: step.text || '' });
+      continue;
     }
 
     if (step.type === "goto") {
@@ -43,10 +44,11 @@ module.exports.handleUpdate = async function handleUpdate(ctx){
       const r = await httpRequest({ url: step.url, method: step.method || 'POST', body: step.body ?? null });
       if (!r.ok) return { type:"text", text: "HTTP "+r.status };
       const msg = r?.json?.message ?? r.text ?? "";
-      return { type:"text", text: String(msg) };
+      await ctx.sendMessage({ type: 'text', text: String(msg) });
+      continue;
     }
   }
-  return { type:"text", text:"Done" };
+  return 'ok';
 };
 `.trim()
 }
