@@ -5,6 +5,8 @@ import Redis from 'ioredis'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { Pool } from 'pg'
 import Ajv from 'ajv'
@@ -12,6 +14,8 @@ import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
 import { generateBotJs as generateWithEngine } from './generator-engine'
 import { toInt, byteLenUtf8 } from '../../lib/ints'
+import botsRoutes from './routes/bots'
+import { findBySecret } from './bots-repo'
 
 
 
@@ -383,6 +387,9 @@ async function main() {
     return payload as any
   })
 
+  // Bots API
+  await app.register(botsRoutes)
+
   // ===== /spec ===== (создать новую версию Spec; immutable в PG)
   // CORS preflight for /spec (explicit to ensure custom headers are allowed)
   app.options('/spec', async (req, reply) => {
@@ -713,8 +720,49 @@ async function main() {
     return { ok: true, enqueued: true, botId, chatId, revHash }
   })
 
+  // ===== /telegram/webhook ===== (multi-bot by x-telegram-bot-api-secret-token)
+  app.post('/telegram/webhook', async (req, reply) => {
+    try {
+      const secret = (req.headers['x-telegram-bot-api-secret-token'] as string | undefined) || ''
+      if (!secret) return reply.code(403).send({ ok:false, error: 'missing secret' })
+
+      const bot = await findBySecret(secret)
+      if (!bot || bot.is_active === false) return reply.code(403).send({ ok:false, error: 'unknown bot' })
+
+      const botId = bot.bot_id
+      const body: any = req.body
+      const updateId = body?.update_id
+      const chatId = body?.message?.chat?.id
+      const text = body?.message?.text ?? ''
+      const revHash = activeRev[botId]
+
+      if (updateId != null) {
+        const key = `idemp:update:${botId}:${updateId}`
+        const ok = await redis.set(key, '1', 'EX', 24 * 60 * 60, 'NX')
+        if (ok === null) return reply.code(200).send({ ok: true, botId, revHash, chatId, response: { type: 'noop', text: 'duplicate' } })
+      }
+      if (!revHash) return reply.code(409).send({ error:{ code:'NO_ACTIVE_REV' } })
+
+      const job = { botId, revHash, chatId, text, ts: Date.now() }
+      await redis.lpush(qKey(botId, chatId), JSON.stringify(job))
+      return reply.send({ ok: true, enqueued: true, botId, chatId, revHash })
+    } catch (e:any) {
+      req.log?.error?.({ err: String(e?.message||e) }, 'telegram webhook error')
+      return reply.code(500).send({ ok: false })
+    }
+  })
+
   // корневой пинг (удобно проверять в браузере)
   app.get('/', async () => ({ ok: true }))
+  app.ready((err) => {
+    if (!err) {
+      try {
+        const outPath = path.resolve(__dirname, 'routes.txt')
+        const txt = app.printRoutes({ includeMeta: true }) as unknown as string
+        fs.writeFileSync(outPath, txt)
+      } catch {}
+    }
+  })
 
   // старт сервера
   await app.listen({ port: PORT, host: '0.0.0.0' })

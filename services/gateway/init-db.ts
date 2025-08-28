@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS revisions (
   key_prefix text NOT NULL,
   created_at timestamptz DEFAULT now()
 );
+ 
+ -- === MIGRATION: extend 'bots' for multi-bot support ===
+ ALTER TABLE IF EXISTS bots
+   ADD COLUMN IF NOT EXISTS title          text,
+   ADD COLUMN IF NOT EXISTS tg_username    text,
+   ADD COLUMN IF NOT EXISTS tg_token_enc   bytea,
+   ADD COLUMN IF NOT EXISTS secret_token   text,
+   ADD COLUMN IF NOT EXISTS owner_user_id  text,
+   ADD COLUMN IF NOT EXISTS is_active      boolean DEFAULT true,
+   ADD COLUMN IF NOT EXISTS created_at     timestamptz DEFAULT now(),
+   ADD COLUMN IF NOT EXISTS updated_at     timestamptz DEFAULT now();
+
+ CREATE INDEX IF NOT EXISTS bots_owner_idx ON bots(owner_user_id);
+ CREATE UNIQUE INDEX IF NOT EXISTS bots_secret_idx ON bots(secret_token);
 `;
 
 pool.query(sql)

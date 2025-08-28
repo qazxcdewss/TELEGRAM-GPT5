@@ -3,7 +3,7 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { IVMRunner } from '../../runner/ivm-runtime'
-import { sendTelegramText } from './telegram'
+import { getDecryptedToken } from './bots-repo'
 import { getRunner, setRunner } from '../../runner/cache'
 import { allow as allowRate } from '../../lib/ratelimit'
 
@@ -158,7 +158,26 @@ async function processOne(payload: string) {
         }))
 
         // 1) реально отправляем
-        const res = await sendTelegramText(msg.botId, msg.chatId, p?.text ?? '')
+        const res = await (async () => {
+          const token = await getDecryptedToken(msg.botId)
+          const url = `https://api.telegram.org/bot${token}/sendMessage`
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ chat_id: msg.chatId, text: p?.text ?? '' }),
+          } as any)
+          const j = await (r as any).json().catch(() => ({}))
+          if (!j?.ok && j?.parameters?.retry_after) {
+            const ms = Number(j.parameters.retry_after) * 1000
+            await new Promise(res => setTimeout(res, ms))
+            return await (await fetch(url, {
+              method: 'POST', headers: { 'Content-Type':'application/json' },
+              body: JSON.stringify({ chat_id: msg.chatId, text: p?.text ?? '' }),
+            } as any)).json()
+          }
+          if (!j?.ok) throw new Error('Telegram send failed: ' + (j?.description || (r as any).status))
+          return j?.result
+        })()
 
         // 2) шлём в SSE, чтобы было видно в Console
         await ssePub.publish('sse', JSON.stringify({
@@ -204,7 +223,10 @@ async function processOne(payload: string) {
     if (fallbackText) {
       console.log('[worker] fallback send:', fallbackText)
       try {
-        const r2 = await sendTelegramText(msg.botId, msg.chatId, fallbackText)
+        const token = await getDecryptedToken(msg.botId)
+        const url = `https://api.telegram.org/bot${token}/sendMessage`
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ chat_id: msg.chatId, text: fallbackText }) } as any)
+        const r2 = await (r as any).json()
         await ssePub.publish('sse', JSON.stringify({
           event: 'TelegramSent',
           data: { botId: msg.botId, chatId: msg.chatId, text: fallbackText, messageId: (r2 as any)?.message_id }

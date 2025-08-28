@@ -1,0 +1,215 @@
+└── (empty root node)
+    ├── / (GET)
+    │   • (errorHandler) "defaultErrorHandler()"
+    │   • (logLevel) ""
+    │   • (onRequest) ["handleCors()"]
+    │   • (onSend) ["anonymous()","anonymous()"]
+    │   • (onResponse) ["anonymous()"]
+    │   / (HEAD)
+    │   • (errorHandler) "defaultErrorHandler()"
+    │   • (logLevel) ""
+    │   • (onRequest) ["handleCors()"]
+    │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   • (onResponse) ["anonymous()"]
+    │   ├── health (GET)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   health (HEAD)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   ├── d
+    │   │   ├── b/health (GET)
+    │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   • (logLevel) ""
+    │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │   • (onResponse) ["anonymous()"]
+    │   │   │   b/health (HEAD)
+    │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   • (logLevel) ""
+    │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   │   • (onResponse) ["anonymous()"]
+    │   │   ├── lq/
+    │   │   │   └── :botId (GET)
+    │   │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │   │       • (logLevel) ""
+    │   │   │       • (onRequest) ["handleCors()"]
+    │   │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │   │       • (onResponse) ["anonymous()"]
+    │   │   │       :botId (HEAD)
+    │   │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │   │       • (logLevel) ""
+    │   │   │       • (onRequest) ["handleCors()"]
+    │   │   │       • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   │       • (onResponse) ["anonymous()"]
+    │   │   └── eploy (POST)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │       • (onResponse) ["anonymous()"]
+    │   │       └── ments/
+    │   │           └── :taskId (GET)
+    │   │               • (errorHandler) "defaultErrorHandler()"
+    │   │               • (logLevel) ""
+    │   │               • (onRequest) ["handleCors()"]
+    │   │               • (onSend) ["anonymous()","anonymous()"]
+    │   │               • (onResponse) ["anonymous()"]
+    │   │               :taskId (HEAD)
+    │   │               • (errorHandler) "defaultErrorHandler()"
+    │   │               • (logLevel) ""
+    │   │               • (onRequest) ["handleCors()"]
+    │   │               • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │               • (onResponse) ["anonymous()"]
+    │   ├── events (GET)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   events (HEAD)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   ├── api/bots (POST, GET)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   api/bots (HEAD)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   └── /
+    │   │       └── :botId
+    │   │           └── /
+    │   │               ├── validate (POST)
+    │   │               │   • (errorHandler) "defaultErrorHandler()"
+    │   │               │   • (logLevel) ""
+    │   │               │   • (onRequest) ["handleCors()"]
+    │   │               │   • (onSend) ["anonymous()","anonymous()"]
+    │   │               │   • (onResponse) ["anonymous()"]
+    │   │               └── setWebhook (POST)
+    │   │                   • (errorHandler) "defaultErrorHandler()"
+    │   │                   • (logLevel) ""
+    │   │                   • (onRequest) ["handleCors()"]
+    │   │                   • (onSend) ["anonymous()","anonymous()"]
+    │   │                   • (onResponse) ["anonymous()"]
+    │   ├── spec (OPTIONS, POST)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   └── /
+    │   │       ├── latest (GET)
+    │   │       │   • (errorHandler) "defaultErrorHandler()"
+    │   │       │   • (logLevel) ""
+    │   │       │   • (onRequest) ["handleCors()"]
+    │   │       │   • (onSend) ["anonymous()","anonymous()"]
+    │   │       │   • (onResponse) ["anonymous()"]
+    │   │       │   latest (HEAD)
+    │   │       │   • (errorHandler) "defaultErrorHandler()"
+    │   │       │   • (logLevel) ""
+    │   │       │   • (onRequest) ["handleCors()"]
+    │   │       │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │       │   • (onResponse) ["anonymous()"]
+    │   │       └── :version (GET)
+    │   │           • (errorHandler) "defaultErrorHandler()"
+    │   │           • (logLevel) ""
+    │   │           • (onRequest) ["handleCors()"]
+    │   │           • (onSend) ["anonymous()","anonymous()"]
+    │   │           • (onResponse) ["anonymous()"]
+    │   │           :version (HEAD)
+    │   │           • (errorHandler) "defaultErrorHandler()"
+    │   │           • (logLevel) ""
+    │   │           • (onRequest) ["handleCors()"]
+    │   │           • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │           • (onResponse) ["anonymous()"]
+    │   ├── generate (POST)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   ├── revisions (GET)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   revisions (HEAD)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   └── /
+    │   │       └── :revHash (GET)
+    │   │           • (errorHandler) "defaultErrorHandler()"
+    │   │           • (logLevel) ""
+    │   │           • (onRequest) ["handleCors()"]
+    │   │           • (onSend) ["anonymous()","anonymous()"]
+    │   │           • (onResponse) ["anonymous()"]
+    │   │           :revHash (HEAD)
+    │   │           • (errorHandler) "defaultErrorHandler()"
+    │   │           • (logLevel) ""
+    │   │           • (onRequest) ["handleCors()"]
+    │   │           • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │           • (onResponse) ["anonymous()"]
+    │   ├── metrics (GET)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   metrics (HEAD)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   ├── bots/
+    │   │   └── :botId (GET)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │       • (onResponse) ["anonymous()"]
+    │   │       :botId (HEAD)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │       • (onResponse) ["anonymous()"]
+    │   ├── wh/
+    │   │   └── :botId (POST)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │       • (onResponse) ["anonymous()"]
+    │   └── telegram/webhook (POST)
+    │       • (errorHandler) "defaultErrorHandler()"
+    │       • (logLevel) ""
+    │       • (onRequest) ["handleCors()"]
+    │       • (onSend) ["anonymous()","anonymous()"]
+    │       • (onResponse) ["anonymous()"]
+    └── * (OPTIONS)
+        • (errorHandler) "defaultErrorHandler()"
+        • (logLevel) ""
+        • (onRequest) ["handleCors()"]
+        • (onSend) ["anonymous()","anonymous()"]
+        • (onResponse) ["anonymous()"]

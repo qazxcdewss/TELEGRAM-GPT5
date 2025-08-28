@@ -1,17 +1,10 @@
 // services/gateway/telegram.ts
 import crypto from 'node:crypto'
+import { getDecryptedToken } from './bots-repo'
 
-// A) токен из ENV (по botId)
+// Токен из БД
 export async function getTelegramToken(botId: string): Promise<string> {
-  const candidates = [
-    `TELEGRAM_TOKEN_${botId}`,
-    `TELEGRAM_TOKEN_${botId.replace(/[^A-Za-z0-9_]/g, '_')}`,
-  ]
-  for (const k of candidates) {
-    const v = process.env[k]
-    if (v) return v
-  }
-  throw new Error(`NO_TELEGRAM_TOKEN_${botId}`)
+  return getDecryptedToken(botId)
 }
 
 // (опционально) подпись запроса, если когда-то понадобится
