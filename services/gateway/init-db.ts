@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { pgPool } from './db';
 
 const PG_HOST = process.env.PG_HOST ?? '127.0.0.1';
 const PG_PORT = Number(process.env.PG_PORT ?? 5433); // <-- 5433 по умолчанию
@@ -8,13 +8,7 @@ const PG_PASS = process.env.PG_PASSWORD ?? 'tgpt5';
 
 console.log(`Connecting to Postgres ${PG_USER}@${PG_HOST}:${PG_PORT}/${PG_DB} ...`);
 
-const pool = new Pool({
-  host: PG_HOST,
-  port: PG_PORT,
-  database: PG_DB,
-  user: PG_USER,
-  password: PG_PASS,
-});
+const pool = pgPool;
 
 const sql = `
 CREATE TABLE IF NOT EXISTS bots (
@@ -61,7 +55,7 @@ pool.query(sql)
   .then(() => {
     console.log('Tables created ✅');
   })
-  .catch(err => {
+  .catch((err: any) => {
     console.error('Error creating tables', err);
   })
   .finally(() => pool.end());

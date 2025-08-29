@@ -8,13 +8,14 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
-import { Pool } from 'pg'
+import { pgPool } from './db'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
 import { generateBotJs as generateWithEngine } from './generator-engine'
 import { toInt, byteLenUtf8 } from '../../lib/ints'
 import botsRoutes from './routes/bots'
+import devRoutes from './routes/dev'
 import { findBySecret } from './bots-repo'
 
 
@@ -188,9 +189,7 @@ async function getS3Text(key: string): Promise<string> {
 }
 
 // ===== PG =====
-const pool = new Pool({
-  host: PG_HOST, port: PG_PORT, database: PG_DB, user: PG_USER, password: PG_PASS
-})
+const pool = pgPool
 
 async function ensureTables() {
   await pool.query(`
@@ -298,7 +297,7 @@ async function main() {
     await app.register(cors, {
       origin: [CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
       methods: ['GET','POST','OPTIONS'],
-      allowedHeaders: ['Content-Type','If-Match','If-None-Match','x-bot-secret'],
+      allowedHeaders: ['Content-Type','If-Match','If-None-Match','x-bot-secret','x-bot-id'],
       credentials: true,
     })
   
@@ -389,6 +388,7 @@ async function main() {
 
   // Bots API
   await app.register(botsRoutes)
+  await app.register(devRoutes)
 
   // ===== /spec ===== (создать новую версию Spec; immutable в PG)
   // CORS preflight for /spec (explicit to ensure custom headers are allowed)

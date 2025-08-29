@@ -1,6 +1,6 @@
 // services/gateway/worker.ts
 import Redis from 'ioredis'
-import { Pool } from 'pg'
+import { pgPool } from './db'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { IVMRunner } from '../../runner/ivm-runtime'
 import { getDecryptedToken } from './bots-repo'
@@ -30,7 +30,7 @@ const redis = new Redis(REDIS_URL)
 const ssePub = new Redis(REDIS_URL) // для pub/sub
 const sub = new Redis(REDIS_URL)
 let PREWARM_SUBSCRIBED = false
-const pool = new Pool({ host: PG_HOST, port: PG_PORT, database: PG_DB, user: PG_USER, password: PG_PASS })
+const pool = pgPool
 const s3 = new S3Client({
   endpoint: S3_ENDPOINT, region: 'us-east-1', forcePathStyle: true,
   credentials: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY }
@@ -209,31 +209,9 @@ async function processOne(payload: string) {
     }))
 
     const res = await runner.handleUpdate(ctx, tools)
-    console.log('[worker] ivm result:', res)
-
-    // fallback: если бот вернул ответ — отправим сами (поддержим несколько форм)
-    let fallbackText: string | undefined
-    if (res && typeof res === 'object') {
-      if ((res as any).type === 'text' && (res as any).text) fallbackText = String((res as any).text)
-      else if ((res as any).text) fallbackText = String((res as any).text)
-      else if ((res as any).message?.text) fallbackText = String((res as any).message.text)
-    } else if (typeof res === 'string' && res.trim()) {
-      fallbackText = res
-    }
-    if (fallbackText) {
-      console.log('[worker] fallback send:', fallbackText)
-      try {
-        const token = await getDecryptedToken(msg.botId)
-        const url = `https://api.telegram.org/bot${token}/sendMessage`
-        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ chat_id: msg.chatId, text: fallbackText }) } as any)
-        const r2 = await (r as any).json()
-        await ssePub.publish('sse', JSON.stringify({
-          event: 'TelegramSent',
-          data: { botId: msg.botId, chatId: msg.chatId, text: fallbackText, messageId: (r2 as any)?.message_id }
-        }))
-      } catch (e) {
-        console.error('[worker] fallback send failed:', e)
-      }
+    if (typeof res !== 'undefined') {
+      console.warn('[worker] handleUpdate must return undefined; got:', typeof res)
+      // ответы только через ctx.sendMessage внутри изолята
     }
 
     await redis.pipeline()

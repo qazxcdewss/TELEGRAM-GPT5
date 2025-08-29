@@ -80,33 +80,40 @@
     │   │   • (onRequest) ["handleCors()"]
     │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
     │   │   • (onResponse) ["anonymous()"]
-    │   ├── api/bots (POST, GET)
-    │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   • (logLevel) ""
-    │   │   • (onRequest) ["handleCors()"]
-    │   │   • (onSend) ["anonymous()","anonymous()"]
-    │   │   • (onResponse) ["anonymous()"]
-    │   │   api/bots (HEAD)
-    │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   • (logLevel) ""
-    │   │   • (onRequest) ["handleCors()"]
-    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
-    │   │   • (onResponse) ["anonymous()"]
-    │   │   └── /
-    │   │       └── :botId
-    │   │           └── /
-    │   │               ├── validate (POST)
-    │   │               │   • (errorHandler) "defaultErrorHandler()"
-    │   │               │   • (logLevel) ""
-    │   │               │   • (onRequest) ["handleCors()"]
-    │   │               │   • (onSend) ["anonymous()","anonymous()"]
-    │   │               │   • (onResponse) ["anonymous()"]
-    │   │               └── setWebhook (POST)
-    │   │                   • (errorHandler) "defaultErrorHandler()"
-    │   │                   • (logLevel) ""
-    │   │                   • (onRequest) ["handleCors()"]
-    │   │                   • (onSend) ["anonymous()","anonymous()"]
-    │   │                   • (onResponse) ["anonymous()"]
+    │   ├── api/
+    │   │   ├── bots (POST, GET)
+    │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   • (logLevel) ""
+    │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │   • (onResponse) ["anonymous()"]
+    │   │   │   bots (HEAD)
+    │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   • (logLevel) ""
+    │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   │   • (onResponse) ["anonymous()"]
+    │   │   │   └── /
+    │   │   │       └── :botId
+    │   │   │           └── /
+    │   │   │               ├── validate (POST)
+    │   │   │               │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │               │   • (logLevel) ""
+    │   │   │               │   • (onRequest) ["handleCors()"]
+    │   │   │               │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │               │   • (onResponse) ["anonymous()"]
+    │   │   │               └── setWebhook (POST)
+    │   │   │                   • (errorHandler) "defaultErrorHandler()"
+    │   │   │                   • (logLevel) ""
+    │   │   │                   • (onRequest) ["handleCors()"]
+    │   │   │                   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │                   • (onResponse) ["anonymous()"]
+    │   │   └── dev/validate-bot (POST)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │       • (onResponse) ["anonymous()"]
     │   ├── spec (OPTIONS, POST)
     │   │   • (errorHandler) "defaultErrorHandler()"
     │   │   • (logLevel) ""

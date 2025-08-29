@@ -97,7 +97,13 @@ export class IVMRunner {
 
     // вызвать экспортированный обработчик внутри изолята
     const callScript = await this.isolate.compileScript(`module && module.exports && module.exports.handleUpdate && module.exports.handleUpdate(global._ctx)`);
-    return callScript.run(this.context, { timeout: this.timeoutMs });
+    const result = await callScript.run(this.context, { timeout: this.timeoutMs });
+    if (typeof result !== 'undefined') {
+      try {
+        console.warn('[ivm] handleUpdate must return undefined; got:', typeof result, String(result).slice(0, 200));
+      } catch {}
+    }
+    return undefined;
   }
 
   dispose() {

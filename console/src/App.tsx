@@ -88,7 +88,7 @@ export default function App() {
       const body = JSON.parse(spec)
       const r = await fetch(`${API}/spec`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-bot-id': (body?.meta?.botId || BOT_ID || 'my-bot-1') },
         body: JSON.stringify(body),
       })
       if (!r.ok) throw new Error(await r.text())
@@ -119,7 +119,7 @@ export default function App() {
         const botId = parsed?.meta?.botId ?? BOT_ID
         const r = await fetch(`${API_BASE}/spec`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-bot-id': (parsed?.meta?.botId || BOT_ID || 'my-bot-1') },
           body: JSON.stringify(parsed)
         })
         if (!r.ok) {
@@ -173,7 +173,7 @@ export default function App() {
       try { parsed = JSON.parse((spec || '').trim()) } catch { alert('Spec JSON invalid'); return }
 
       // 2) /spec
-      const r1 = await fetch(`${API}/spec`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(parsed) })
+      const r1 = await fetch(`${API}/spec`, { method:'POST', headers:{'Content-Type':'application/json','x-bot-id': (parsed?.meta?.botId || BOT_ID || 'my-bot-1')}, body: JSON.stringify(parsed) })
       if (!r1.ok) { const t = await r1.text(); append('[spec] error '+t); alert(t); return }
       const j1 = await r1.json(); const specVersionId = j1.specVersionId ?? j1.version; append(`[spec] ok v=${specVersionId}`)
 

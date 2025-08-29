@@ -34,7 +34,10 @@ export async function generateBotJsWithGpt5(spec: unknown, opts: Gpt5Options = {
           content:
             'Ты — генератор JS для Telegram-бота. Верни ТОЛЬКО CommonJS код без комментариев и текста вокруг. ' +
             'Обязателен экспорт: module.exports.handleUpdate = async function(ctx) { /* ... */ }. ' +
-            'Запрещены: eval, Function, fs, child_process, process.env, dynamic import, vm, Worker. ' +
+            'ОТВЕТЫ пользователю — ТОЛЬКО через await ctx.sendMessage({ type:"text", text: ... }); возвращай undefined. ' +
+            'НИКОГДА не возвращай объект ответа или строку из handleUpdate. ' +
+            'Разрешены: ctx.sendMessage, ctx.http, ctx.goto, ctx.getState, ctx.setState. ' +
+            'Запрещены: eval, Function, require, fs, child_process, process/env, dynamic import, vm, Worker. ' +
             'Никаких ESM import/export. Никаких внешних зависимостей.',
         },
         {

@@ -1,6 +1,7 @@
 // generator-engine.ts
 import { generateBotJsWithGpt5 } from '../../lib/gpt5'
 import { postValidateBotJs } from '../../lib/botjs-validate'
+import { validateBotJs } from './validate-bot-ast'
 
 // это твой текущий локальный генератор
 import { generateBotJs as generateLocal } from './generator'
@@ -16,6 +17,7 @@ export async function generateBotJs(spec: unknown, engine: Engine = 'local'): Pr
   }
   const maxKB = Number(process.env.GPT5_MAX_BOT_KB || 64)
   postValidateBotJs(js, maxKB)
+  validateBotJs(js)
   return js
 }
 

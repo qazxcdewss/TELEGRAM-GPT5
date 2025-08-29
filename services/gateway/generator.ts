@@ -24,7 +24,7 @@ module.exports.handleUpdate = async function handleUpdate(ctx){
   const cmd = text.startsWith("/") ? text.split(" ",1)[0] : null;
   let flowName = (commands.find(c => c.cmd === cmd)?.flow) || (flows[0]?.name);
   let flow = getFlow(flowName);
-  if (!flow) return { type:"text", text:"Flow not found" };
+  if (!flow) { await ctx.sendMessage({ type:"text", text:"Flow not found" }); return; }
 
   for (let i=0;i<flow.steps.length;i++){
     const step = flow.steps[i];
@@ -36,19 +36,19 @@ module.exports.handleUpdate = async function handleUpdate(ctx){
 
     if (step.type === "goto") {
       const next = getFlow(step.to);
-      if (!next) return { type:"text", text:"Flow not found: "+step.to };
+      if (!next) { await ctx.sendMessage({ type:"text", text:"Flow not found: "+step.to }); return; }
       flow = next; i = -1; continue; // стартуем новый flow
     }
 
     if (step.type === "http") {
       const r = await httpRequest({ url: step.url, method: step.method || 'POST', body: step.body ?? null });
-      if (!r.ok) return { type:"text", text: "HTTP "+r.status };
+      if (!r.ok) { await ctx.sendMessage({ type:"text", text: "HTTP "+r.status }); return; }
       const msg = r?.json?.message ?? r.text ?? "";
       await ctx.sendMessage({ type: 'text', text: String(msg) });
       continue;
     }
   }
-  return 'ok';
+  return;
 };
 `.trim()
 }
