@@ -1,6 +1,24 @@
 import { FastifyInstance } from 'fastify'
 import { createOrUpdateBot, listBots, setUsername, getDecryptedToken, getSecret } from '../bots-repo'
 
+async function getNgrokHttps(): Promise<string|undefined> {
+  try {
+    const r = await fetch('http://127.0.0.1:4040/api/tunnels', { method:'GET' } as any)
+    if (!r?.ok) return
+    const j = await (r as any).json()
+    const t = (j?.tunnels || []).find((x:any)=> String(x.public_url||'').startsWith('https://'))
+    return t?.public_url?.replace(/\/+$/,'')
+  } catch {}
+}
+
+function guessFromHeaders(req: any): string|undefined {
+  try {
+    const proto = String((req.headers?.['x-forwarded-proto'] as any) || 'https')
+    const host  = String((req.headers?.['x-forwarded-host'] as any) || (req.headers?.['host'] as any) || '')
+    if (host) return `${proto}://${host}`.replace(/\/+$/,'')
+  } catch {}
+}
+
 export default async function botsRoutes(fastify: FastifyInstance) {
   const getOwner = () => process.env.DEV_OWNER_ID || 'dev-user-1'
 
@@ -43,20 +61,29 @@ export default async function botsRoutes(fastify: FastifyInstance) {
 
   fastify.post('/api/bots/:botId/setWebhook', async (req, reply) => {
     try {
-      const botId = (req.params as any).botId
-      const body = (req.body || {}) as any
-      const urlBase = String(body.urlBase || process.env.TG_WEBHOOK_URL_BASE || '').replace(/\/+$/, '')
-      if (!urlBase) return reply.code(400).send({ ok: false, error: 'urlBase or TG_WEBHOOK_URL_BASE required' })
+      const botId = String((req.params as any).botId || '')
+      const body  = (req.body || {}) as any
+      let url = String(body?.url || '')
+      if (!botId) return reply.code(400).send({ ok:false, error:'botId required' })
+
+      // compute public base if url not provided
+      if (!url) {
+        const envBase = (process.env.PUBLIC_BASE || '').replace(/\/+$/,'')
+        const viaNgrok = await getNgrokHttps()
+        const viaHdrs  = guessFromHeaders(req)
+        const publicBase = envBase || viaNgrok || viaHdrs
+        if (!publicBase) return reply.code(400).send({ ok:false, error:'Cannot determine public base (set PUBLIC_BASE or run ngrok)' })
+        url = `${publicBase}/wh/${encodeURIComponent(botId)}`
+      }
 
       const token = await getDecryptedToken(botId)
       const secret = await getSecret(botId)
-      const url = `${urlBase}/telegram/webhook`
 
       const r = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, secret_token: secret })
-      }).then(r => r.json())
+        body: JSON.stringify({ url, secret_token: secret, drop_pending_updates: true })
+      } as any).then(r => r.json())
 
       if (!r?.ok) return reply.code(400).send({ ok: false, error: r?.description || 'setWebhook failed' })
       return reply.send({ ok: true, url })

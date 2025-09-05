@@ -8,7 +8,9 @@ type Revision = { revHash: string; createdAt: string }
 
 export default function App() {
   const [spec, setSpec] = useState<string>(
-    `{\n  "meta": { "botId": "${BOT_ID}" }\n}`
+    `{
+  "meta": { "botId": "${BOT_ID}" }
+}`
   )
   const [revs, setRevs] = useState<Revision[]>([])
   const [activeRev, setActiveRev] = useState<string | null>(null)
@@ -18,80 +20,153 @@ export default function App() {
   const [engine, setEngine] = useState<'local'|'gpt5'>('local')
   const [testText, setTestText] = useState<string>('/start')
 
+  // Активный бот и список ботов
+  const [bots, setBots] = useState<Array<{ botId: string; title?: string }>>([])
+  const [activeBotId, setActiveBotId] = useState<string>(() => localStorage.getItem('activeBotId') || (BOT_ID || 'my-bot-1'))
+
+  const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || API
+
+  // Единый helper с x-bot-id и JSON по умолчанию
+  async function apiFetch(path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers || {})
+    if (activeBotId) headers.set('x-bot-id', activeBotId)
+    if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+    if (!res.ok) {
+      const t = await res.text().catch(() => '')
+      throw new Error(t || `HTTP_${res.status}`)
+    }
+    return res
+  }
+
+  // Add Bot form
+  const [newBotId, setNewBotId] = useState('my-bot-1')
+  const [newBotTitle, setNewBotTitle] = useState('My Bot')
+  const [newBotToken, setNewBotToken] = useState('')
+  const [autoWebhook, setAutoWebhook] = useState(true)
+
+  async function addBotAndMaybeWebhook() {
+    try {
+      if (!newBotId || !newBotToken) { alert('botId и BotFather token обязательны'); return }
+      // 1) Create bot
+      const create = await apiFetch('/api/bots', {
+        method: 'POST',
+        body: JSON.stringify({ botId: newBotId, title: newBotTitle || newBotId, token: newBotToken })
+      }).then(r => r.json())
+      append('[bots] created ' + (create?.botId || newBotId))
+      setActiveBotId(newBotId)
+      // 2) Auto set webhook (URL сервер вычислит сам)
+      if (autoWebhook) {
+        const setWh = await apiFetch(`/api/bots/${encodeURIComponent(newBotId)}/setWebhook`, {
+          method: 'POST',
+          body: JSON.stringify({})
+        }).then(r => r.json().catch(()=>({})))
+        append('[bots] webhook set ' + JSON.stringify(setWh).slice(0,120))
+      }
+      // 3) refresh bots list
+      try {
+        const r2 = await apiFetch('/api/bots', { method:'GET' })
+        const list = await r2.json()
+        if (Array.isArray(list)) setBots(list.map((b:any)=>({ botId: String(b.bot_id || b.botId || b.id), title: b.title })))
+      } catch {}
+    } catch (e:any) {
+      append('[bots] add error ' + (e?.message || e)); alert(e?.message || e)
+    }
+  }
+
+  // Ревизии выбранного бота
+  const [revisions, setRevisions] = useState<Array<{revHash:string; createdAt?:string}>>([])
+  const [loadingRevs, setLoadingRevs] = useState(false)
+
+  async function loadRevisions() {
+    try {
+      setLoadingRevs(true)
+      const r = await apiFetch(`/revisions?botId=${encodeURIComponent(activeBotId)}`, { method:'GET' })
+      const j = await r.json().catch(()=>null as any)
+      const arr = Array.isArray(j) ? j : Array.isArray(j?.items) ? j.items : []
+      const list = arr.map((x:any)=>({
+        revHash: String(x.revHash || x.rev_hash || x.rev || ''),
+        createdAt: x.createdAt || x.created_at
+      }))
+      setRevisions(list)
+    } finally { setLoadingRevs(false) }
+  }
+
+  useEffect(() => { loadRevisions().catch(()=>{}) }, [activeBotId])
+
+  // Фильтр SSE
+  const [sseFilter, setSseFilter] = useState<{gen:boolean; dep:boolean; wh:boolean; other:boolean}>({ gen:true, dep:true, wh:true, other:true })
+
   const append = (line: string) =>
     setLog((l) => [new Date().toLocaleTimeString() + ' ' + line, ...l].slice(0, 200))
 
   async function refresh() {
-    const r1 = await fetch(`${API}/revisions?botId=${encodeURIComponent(BOT_ID)}`).then((r) => r.json())
+    const r1 = await apiFetch(`/revisions?botId=${encodeURIComponent(activeBotId)}`).then((r) => r.json())
     setRevs(
       (r1?.items ?? []).map((x: any) => ({
         revHash: x.rev_hash || x.revHash,
         createdAt: x.created_at || x.createdAt,
       }))
     )
-    const r2 = await fetch(`${API}/bots/${BOT_ID}`).then((r) => r.json())
+    const r2 = await apiFetch(`/bots/${encodeURIComponent(activeBotId)}`).then((r) => r.json())
     setActiveRev(r2?.activeRevHash ?? null)
   }
 
+  // Подключение SSE с фильтрами
   useEffect(() => {
-    const url = `${API}/events`;
-    const es = new EventSource(url, { withCredentials: true });
-    esRef.current = es;
+    try { esRef.current?.close() } catch {}
+    const url = `${API}/events`
+    const es = new EventSource(url, { withCredentials: true } as any)
+    esRef.current = es
+    es.onopen = () => append('[sse] open')
+    es.onerror = () => append('[sse] error')
+    es.onmessage = (e) => {
+      const line = String((e as MessageEvent).data || '')
+      if (!line) return
+      const lower = line.toLowerCase()
+      let type: 'gen'|'dep'|'wh'|'other' = 'other'
+      if (lower.includes('generate')) type = 'gen'
+      else if (lower.includes('deploy')) type = 'dep'
+      else if (lower.includes('/wh/') || lower.includes('webhook')) type = 'wh'
+      if (!sseFilter.gen && type==='gen') return
+      if (!sseFilter.dep && type==='dep') return
+      if (!sseFilter.wh  && type==='wh')  return
+      if (!sseFilter.other && type==='other') return
+      if (activeBotId && !line.includes(activeBotId)) {
+        // можно включить строгую фильтрацию по botId, если сервер пишёт его в событие
+        // return
+      }
+      append('[sse] ' + line.slice(0, 500))
+    }
+    return () => { try { es.close() } catch {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBotId, sseFilter.gen, sseFilter.dep, sseFilter.wh, sseFilter.other])
 
-    es.onopen = () => append('[sse] open');
-    es.onerror = () => append('[sse] error');
-    // убираем общий onmessage-спам: слушаем только нужные именованные события ниже
-
-    es.addEventListener('GenerateStarted',   (e) => append('[gen] started ' + (e as MessageEvent).data));
-    es.addEventListener('GenerateSucceeded', (e) => append('[gen] ok ' + (e as MessageEvent).data));
-    es.addEventListener('DeployStarted',     (e) => append('[deploy] started ' + (e as MessageEvent).data));
-    es.addEventListener('DeployFlipped',     (e) => append('[deploy] flipped ' + (e as MessageEvent).data));
-    es.addEventListener('DeployPrewarmStarted', (e) => {
-      try { const d = JSON.parse((e as MessageEvent).data); append(`[deploy] prewarm started rev=${d.revHash || d.rev_hash}`) }
-      catch { append('[deploy] prewarm started ' + (e as MessageEvent).data) }
-    });
-    es.addEventListener('DeployPrewarmReady', (e) => {
-      try { const d = JSON.parse((e as MessageEvent).data); append(`[deploy] prewarm ready rev=${d.revHash || d.rev_hash}`) }
-      catch { append('[deploy] prewarm ready ' + (e as MessageEvent).data) }
-    });
-
-    // RuntimeEngine — показываем какой движок исполняет
-    es.addEventListener('RuntimeEngine', (e) => {
+  // Подтянуть список ботов при старте
+  useEffect(() => {
+    ;(async () => {
       try {
-        const d = JSON.parse((e as MessageEvent).data)
-        append(`[engine] ${d.engine}`)
-      } catch { append('[engine] ' + (e as MessageEvent).data) }
-    })
-
-    // TelegramSent — отображаем отправленный текст и messageId
-    es.addEventListener('TelegramSent', (e) => {
-      try {
-        const d = JSON.parse((e as MessageEvent).data)
-        append(`[tg] ${d.text} ${d.messageId ? `(id=${d.messageId})` : ''}`)
-      } catch { append('[tg] ' + (e as MessageEvent).data) }
-    })
-
-    // MessageProcessed — показываем только ошибки, «ok» скрываем для тишины
-    es.addEventListener('MessageProcessed', (e) => {
-      try {
-        const data = JSON.parse((e as MessageEvent).data)
-        if (data?.error) append(`[msg] bot=${data.botId} chat=${data.chatId} ERROR ${data.error}`)
+        const r = await apiFetch('/api/bots', { method: 'GET' })
+        const j = await r.json().catch(() => null as any)
+        const arr = Array.isArray(j) ? j : Array.isArray(j?.bots) ? j.bots : []
+        setBots(arr.map((b:any)=>({ botId: String(b.bot_id || b.botId || b.id), title: b.title })))
       } catch {}
-    })
-
-    return () => es.close();
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Сохранять выбор активного бота
+  useEffect(() => {
+    if (activeBotId) localStorage.setItem('activeBotId', activeBotId)
+  }, [activeBotId])
 
   async function uploadSpec() {
     try {
       const body = JSON.parse(spec)
-      const r = await fetch(`${API}/spec`, {
+      await apiFetch('/spec', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-bot-id': (body?.meta?.botId || BOT_ID || 'my-bot-1') },
         body: JSON.stringify(body),
       })
-      if (!r.ok) throw new Error(await r.text())
       append('Spec uploaded')
       refresh()
     } catch (e: any) {
@@ -102,8 +177,6 @@ export default function App() {
   async function generate() {
     try {
       append('[ui] generate clicked')
-
-      const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || API
 
       let specVersionId: number | undefined
       const specTrim = (spec || '').trim()
@@ -116,10 +189,8 @@ export default function App() {
           alert('Spec is not valid JSON')
           return
         }
-        const botId = parsed?.meta?.botId ?? BOT_ID
-        const r = await fetch(`${API_BASE}/spec`, {
+        const r = await apiFetch('/spec', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-bot-id': (parsed?.meta?.botId || BOT_ID || 'my-bot-1') },
           body: JSON.stringify(parsed)
         })
         if (!r.ok) {
@@ -133,12 +204,11 @@ export default function App() {
         append(`[spec] created specVersionId=${specVersionId}`)
       }
 
-      const body: any = { engine, botId: BOT_ID }
+      const body: any = { engine, botId: activeBotId }
       if (specVersionId) body.specVersion = specVersionId
 
-      const r2 = await fetch(`${API_BASE}/generate`, {
+      const r2 = await apiFetch('/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
       if (!r2.ok) {
@@ -166,27 +236,26 @@ export default function App() {
   async function uploadGenDeploy() {
     try {
       append('[ui] upload→generate→deploy')
-      const API = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
 
       // 1) parse spec
       let parsed: any
       try { parsed = JSON.parse((spec || '').trim()) } catch { alert('Spec JSON invalid'); return }
 
       // 2) /spec
-      const r1 = await fetch(`${API}/spec`, { method:'POST', headers:{'Content-Type':'application/json','x-bot-id': (parsed?.meta?.botId || BOT_ID || 'my-bot-1')}, body: JSON.stringify(parsed) })
+      const r1 = await apiFetch('/spec', { method:'POST', body: JSON.stringify(parsed) })
       if (!r1.ok) { const t = await r1.text(); append('[spec] error '+t); alert(t); return }
       const j1 = await r1.json(); const specVersionId = j1.specVersionId ?? j1.version; append(`[spec] ok v=${specVersionId}`)
 
       // 3) /generate
-      const r2 = await fetch(`${API}/generate`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ engine, specVersionId }) })
+      const r2 = await apiFetch('/generate', { method:'POST', body: JSON.stringify({ engine, specVersionId, botId: activeBotId }) })
       if (!r2.ok) { const t = await r2.text(); append('[gen] error '+t); alert(t); return }
       const j2 = await r2.json().catch(async()=>({ revHash: (await r2.text()) }))
       const revHash = (j2 as any).revHash || (j2 as any).rev_hash
       append(`[gen] ok rev=${revHash}`)
 
       // 4) /deploy
-      const botId = String(parsed?.meta?.botId ?? 'my-bot-1')
-      const r3 = await fetch(`${API}/deploy`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ botId, revHash }) })
+      const botId = String(parsed?.meta?.botId ?? activeBotId)
+      const r3 = await apiFetch('/deploy', { method:'POST', body: JSON.stringify({ botId, revHash }) })
       if (!r3.ok) { const t = await r3.text(); append('[dep] error '+t); alert(t); return }
       append('[dep] ok')
     } catch (e:any) {
@@ -196,10 +265,9 @@ export default function App() {
 
   async function deploy() {
     if (!selectedRev) { append('Select a revision'); return }
-    const r = await fetch(`${API}/deploy`, {
+    const r = await apiFetch('/deploy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ botId: BOT_ID, revHash: selectedRev }),
+      body: JSON.stringify({ botId: activeBotId, revHash: selectedRev }),
     })
     if (!r.ok) { append('Deploy ERROR: ' + (await r.text())); return }
     const { taskId } = await r.json()
@@ -225,17 +293,94 @@ export default function App() {
   }
 
   async function fetchMetrics() {
-    const r = await fetch(`${API}/metrics`).then(r=>r.json())
+    const r = await apiFetch('/metrics').then(r=>r.json())
     append('[metrics] ' + JSON.stringify(r))
   }
   async function fetchDLQ() {
-    const r = await fetch(`${API}/dlq/${BOT_ID}`).then(r=>r.json())
+    const r = await apiFetch(`/dlq/${encodeURIComponent(activeBotId)}`).then(r=>r.json())
     append('[dlq] ' + JSON.stringify(r))
   }
 
   return (
     <div style={{ fontFamily: 'ui-sans-serif, system-ui', padding: 20 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Bot Console (MVP)</h1>
+
+      {/* SSE filter */}
+      <div style={{ display:'flex', gap:12, alignItems:'center', margin:'0 0 16px' }}>
+        <b style={{fontSize:13}}>Log filter:</b>
+        <label style={{fontSize:13}}><input type="checkbox" checked={sseFilter.gen} onChange={e=>setSseFilter(v=>({...v, gen:e.target.checked}))}/> Generate</label>
+        <label style={{fontSize:13}}><input type="checkbox" checked={sseFilter.dep} onChange={e=>setSseFilter(v=>({...v, dep:e.target.checked}))}/> Deploy</label>
+        <label style={{fontSize:13}}><input type="checkbox" checked={sseFilter.wh}  onChange={e=>setSseFilter(v=>({...v, wh:e.target.checked}))}/> Webhook</label>
+        <label style={{fontSize:13}}><input type="checkbox" checked={sseFilter.other} onChange={e=>setSseFilter(v=>({...v, other:e.target.checked}))}/> Other</label>
+      </div>
+
+      {/* Add Bot (server-side auto webhook) */}
+      <section style={{ border: '1px solid #eee', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Add Bot</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label style={{ fontSize: 13 }}>Bot ID
+            <input value={newBotId} onChange={e=>setNewBotId(e.target.value)} style={{ width:'100%', padding:'6px 8px' }} />
+          </label>
+          <label style={{ fontSize: 13 }}>Title
+            <input value={newBotTitle} onChange={e=>setNewBotTitle(e.target.value)} style={{ width:'100%', padding:'6px 8px' }} />
+          </label>
+          <label style={{ fontSize: 13 }}>BotFather Token
+            <input value={newBotToken} onChange={e=>setNewBotToken(e.target.value)} style={{ width:'100%', padding:'6px 8px' }} placeholder="123456:AA..." />
+          </label>
+          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize: 13 }}>
+            <input type="checkbox" checked={autoWebhook} onChange={e=>setAutoWebhook(e.target.checked)} />
+            Auto set webhook via ngrok
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button onClick={addBotAndMaybeWebhook}>Create</button>
+        </div>
+      </section>
+
+      {/* ——— Active Bot ——— */}
+      <div style={{ display:'flex', gap:12, alignItems:'center', margin:'4px 0 16px' }}>
+        <label style={{ fontSize:13 }}>
+          Active Bot:&nbsp;
+          <select value={activeBotId} onChange={e=>setActiveBotId(e.target.value)} style={{ padding:'6px 8px', minWidth:220 }}>
+            {bots.map(b => (
+              <option key={b.botId} value={b.botId}>{b.botId}{b.title ? ` — ${b.title}` : ''}</option>
+            ))}
+            {!bots.find(b=>b.botId===activeBotId) && <option value={activeBotId}>{activeBotId}</option>}
+          </select>
+        </label>
+        <span style={{ fontSize:12, color:'#666' }}>все /spec /generate /deploy идут с заголовком <code>x-bot-id: {activeBotId}</code></span>
+      </div>
+
+      {/* 2) Revisions (per bot) */}
+      <section style={{ border:'1px solid #eee', borderRadius:12, padding:12, marginBottom:16 }}>
+        <h2 style={{ marginTop:0 }}>2) Revisions — {activeBotId}</h2>
+        <div style={{ fontSize:12, color:'#666', marginBottom:8 }}>
+          {loadingRevs ? 'Loading…' : `Total: ${revisions.length}`}
+          {activeRev ? ` · Active: ${activeRev}` : ''}
+          <button onClick={loadRevisions} style={{ marginLeft:8 }}>Refresh</button>
+        </div>
+        <div style={{ display:'grid', gap:8 }}>
+          {revisions.length === 0 && <div style={{fontSize:13}}>Нет ревизий для бота {activeBotId}</div>}
+          {revisions.slice(0,30).map(r => (
+            <div key={r.revHash} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', border:'1px solid #eee', borderRadius:8, padding:'8px 10px' }}>
+              <div style={{ fontFamily:'ui-monospace', fontSize:12, overflow:'hidden', textOverflow:'ellipsis' }}>
+                {r.revHash}{activeRev===r.revHash ? <span style={{marginLeft:8, fontSize:11, color:'#0a0'}}>● active</span> : null}
+                {r.createdAt ? <span style={{marginLeft:8, color:'#666'}}>{r.createdAt}</span> : null}
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={async ()=>{
+                  try {
+                    const res = await apiFetch('/deploy', { method:'POST', body: JSON.stringify({ botId: activeBotId, revHash: r.revHash }) })
+                    await res.text(); append('[dep] ok '+r.revHash)
+                    setActiveRev(r.revHash)
+                  } catch(e:any){ append('[dep] error '+(e?.message||e)); alert(e?.message||e) }
+                }}>Deploy</button>
+                <button onClick={()=>navigator.clipboard?.writeText(r.revHash)}>Copy</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
@@ -261,28 +406,6 @@ export default function App() {
                 <option value="gpt5">gpt5</option>
               </select>
             </label>
-          </div>
-        </div>
-
-        <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
-          <h2>2) Revisions & Deploy</h2>
-          <div>Active: <b>{activeRev ?? '—'}</b></div>
-          <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid #f1f1f1', borderRadius: 8 }}>
-            <table style={{ width: '100%', fontSize: 13 }}>
-              <thead><tr><th>revHash</th><th>created</th><th></th></tr></thead>
-              <tbody>
-                {revs.map((r) => (
-                  <tr key={r.revHash} style={{ background: selectedRev === r.revHash ? '#f6faff' : undefined }}>
-                    <td style={{ fontFamily: 'ui-monospace' }}>{r.revHash}</td>
-                    <td>{new Date(r.createdAt).toLocaleString()}</td>
-                    <td><button onClick={() => setSelectedRev(r.revHash)}>select</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <button onClick={deploy} disabled={!selectedRev}>Deploy selected</button>
           </div>
         </div>
 

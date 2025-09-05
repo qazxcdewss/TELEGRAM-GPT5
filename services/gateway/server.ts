@@ -16,7 +16,7 @@ import { generateBotJs as generateWithEngine } from './generator-engine'
 import { toInt, byteLenUtf8 } from '../../lib/ints'
 import botsRoutes from './routes/bots'
 import devRoutes from './routes/dev'
-import { findBySecret } from './bots-repo'
+import { findBySecret, getSecret } from './bots-repo'
 
 
 
@@ -686,38 +686,53 @@ async function main() {
     return d
   })
 
-  // ===== /wh/:botId ===== (Runtime echo)
+  // ===== /wh/:botId ===== (Telegram webhook ingress)
   app.post('/wh/:botId', async (req, reply) => {
-    const s1 = req.headers['x-bot-secret'] as string | undefined
-    const s2 = req.headers['x-telegram-bot-api-secret-token'] as string | undefined
-    if ((s1 || s2) !== BOT_SECRET) {
-      reply.code(403).send({ error: 'FORBIDDEN' }); return
-    }
+    try {
+      const { botId } = req.params as any
+      if (!botId) return reply.code(400).send({ ok:false, error:'botId required' })
 
-    const { botId } = req.params as any
-    const body: any = req.body
-    const updateId = body?.update_id
-    const chatId = body?.message?.chat?.id
-    const text = body?.message?.text ?? ''
-    const revHash = activeRev[botId]
-  
-    // --- Idempotency: ключ на 24 часа
-    if (updateId != null) {
-      const key = `idemp:update:${botId}:${updateId}`
-      const ok = await redis.set(key, '1', 'EX', 24 * 60 * 60, 'NX') // EX+NX
-      if (ok === null) {
-        // уже видели этот апдейт — отвечаем тем же 200 OK, но не выполняем логику второй раз
-        return { ok: true, botId, revHash, chatId, response: { type: 'noop', text: 'duplicate' } }
+      // Validate Telegram secret header
+      const incomingSecret = String(req.headers['x-telegram-bot-api-secret-token'] || '')
+      try {
+        const expected = await getSecret(botId)
+        if (!incomingSecret || incomingSecret !== expected) {
+          req.log.warn({ botId }, 'webhook forbidden (secret mismatch)')
+          return reply.code(403).send({ ok:false })
+        }
+      } catch {
+        // if cannot get secret → forbidden
+        return reply.code(403).send({ ok:false })
       }
+
+      const body: any = req.body
+      const updateId = body?.update_id
+      const chatId = body?.message?.chat?.id
+      const text = body?.message?.text ?? ''
+      const revHash = activeRev[botId]
+
+      // Idempotency (24h)
+      if (updateId != null) {
+        const key = `idemp:update:${botId}:${updateId}`
+        const ok = await redis.set(key, '1', 'EX', 24 * 60 * 60, 'NX')
+        if (ok === null) {
+          return reply.code(200).send({ ok: true, botId, revHash, chatId, response: { type: 'noop', text: 'duplicate' } })
+        }
+      }
+
+      if (!revHash) return reply.code(409).send({ error:{ code:'NO_ACTIVE_REV' } })
+
+      // enqueue job for async processing
+      const job = { botId, revHash, chatId, text, ts: Date.now() }
+      await redis.lpush(qKey(botId, chatId), JSON.stringify(job))
+
+      // quick ACK
+      return reply.code(200).send({ ok: true, enqueued: true, botId, chatId, revHash })
+    } catch (e:any) {
+      req.log.error(e, 'webhook handler error')
+      // Always 200 to Telegram to avoid retries
+      return reply.code(200).send({ ok: true })
     }
-    if (!revHash) return reply.code(409).send({ error:{ code:'NO_ACTIVE_REV' } })
-
-    // enqueue job for async processing
-    const job = { botId, revHash, chatId, text, ts: Date.now() }
-    await redis.lpush(qKey(botId, chatId), JSON.stringify(job))
-
-    // quick ACK
-    return { ok: true, enqueued: true, botId, chatId, revHash }
   })
 
   // ===== /telegram/webhook ===== (multi-bot by x-telegram-bot-api-secret-token)
