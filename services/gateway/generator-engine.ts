@@ -16,7 +16,12 @@ export async function generateBotJs(spec: unknown, engine: Engine = 'local'): Pr
     js = await generateBotJsWithGpt5(spec)
   }
   const maxKB = Number(process.env.GPT5_MAX_BOT_KB || 64)
-  postValidateBotJs(js, maxKB)
+  try {
+    postValidateBotJs(js, maxKB)
+  } catch (e:any) {
+    console.error('[gen] broken bot.js >>>\n' + js + '\n<<< broken bot.js')
+    throw e
+  }
   validateBotJs(js)
   return js
 }

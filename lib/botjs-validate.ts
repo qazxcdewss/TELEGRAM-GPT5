@@ -33,11 +33,15 @@ function utf8ByteLength(str: string): number {
 }
 
 export function stripMarkdownFences(code: string): string {
-  // вырезаем ```js ... ```
-  const fence = code.match(/```[\s\S]*?```/);
-  if (!fence) return code.trim();
-  const inner = fence[0].replace(/^```[a-zA-Z]*\s*/, '').replace(/```$/, '');
-  return inner.trim();
+  const s = (code ?? '').toString();
+  // 1) Если есть несколько блоков ```...```, берём самый длинный (скорее всего — основной код)
+  const fences = [...s.matchAll(/```([\s\S]*?)```/g)].map(m => m[1] || '');
+  let picked = fences.sort((a, b) => b.length - a.length)[0];
+  if (!picked) {
+    // 2) Если явных заборов нет, уберём одиночные тройные бэктики и префиксы языка
+    picked = s.replace(/```[a-zA-Z]*\s*/g, '').replace(/```/g, '');
+  }
+  return picked.trim();
 }
 
 export function postValidateBotJs(js: string, maxKB = 64) {

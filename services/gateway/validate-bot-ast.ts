@@ -5,12 +5,16 @@ export function validateBotJs(code: string) {
   const ast = acorn.parse(code, { ecmaVersion: 'latest', sourceType: 'script' }) as any
 
   let hasExportHandleUpdate = false
+  let exportIsAsync = false
+  let hasTopLevelEffects = false
+  let hasEsmSyntax = false
   let hasSendMessageAwait = false
   let hasForbidden = false
   let returnsObjectResponse = false
   let returnsStringResponse = false
   let usesProcessEnv = false
   let usesDynamicImport = false
+  let handleFn: any = null   // AST-узел функции handleUpdate
 
   const forbidden = new Set(['eval', 'Function', 'require', 'fs', 'child_process', 'vm', 'Worker', 'process']);
 
@@ -37,8 +41,19 @@ export function validateBotJs(code: string) {
         node.left?.object?.object?.name === 'module' &&
         node.left?.object?.property?.name === 'exports' &&
         node.left?.property?.name === 'handleUpdate'
-      ) hasExportHandleUpdate = true
+      ) {
+        hasExportHandleUpdate = true
+        // Проверим, что справа именно async function (FunctionExpression или ArrowFunctionExpression)
+        const r = (node as any).right
+        if (r?.type === 'FunctionExpression' || r?.type === 'ArrowFunctionExpression') {
+          if (r.async === true) exportIsAsync = true
+          handleFn = r
+        }
+      }
     },
+    ImportDeclaration(_n:any){ hasEsmSyntax = true },
+    ExportNamedDeclaration(_n:any){ hasEsmSyntax = true },
+    ExportDefaultDeclaration(_n:any){ hasEsmSyntax = true },
     CallExpression(node: any) {
       if (node.callee?.type === 'MemberExpression' &&
           node.callee.object?.name === 'ctx' &&
@@ -54,6 +69,9 @@ export function validateBotJs(code: string) {
       if (node.callee?.type === 'Identifier' && forbidden.has(node.callee.name)) {
         hasForbidden = true
       }
+      // Запрет топ-левел эффектов: любой CallExpression на верхнем уровне Program
+      const parent = (node as any).parent
+      if (parent?.type === 'Program') hasTopLevelEffects = true
     },
     Identifier(node: any) {
       if (forbidden.has(node.name)) hasForbidden = true
@@ -71,24 +89,38 @@ export function validateBotJs(code: string) {
       usesDynamicImport = true
     },
     ReturnStatement(node: any) {
-      if (node.argument?.type === 'ObjectExpression') {
-        const keys = new Set(node.argument.properties?.map((p:any)=>p.key?.name || p.key?.value))
-        if (keys.has('type') && keys.has('text')) returnsObjectResponse = true
+      // Проверяем только возвраты ВНУТРИ handleUpdate
+      function isInsideHandle(n: any): boolean {
+        let p = n as any
+        while (p) {
+          if (p === handleFn) return true
+          p = p.parent
+        }
+        return false
       }
-      if (node.argument?.type === 'Literal' && typeof node.argument.value === 'string') {
-        returnsStringResponse = true
+      if (handleFn && isInsideHandle(node)) {
+        if (node.argument?.type === 'ObjectExpression') {
+          const keys = new Set(node.argument.properties?.map((p:any)=>p.key?.name || p.key?.value))
+          if (keys.has('type') && keys.has('text')) returnsObjectResponse = true
+        }
+        if (node.argument?.type === 'Literal' && typeof node.argument.value === 'string') {
+          returnsStringResponse = true
+        }
       }
     }
   } as any)
 
   const errors: string[] = []
   if (!hasExportHandleUpdate) errors.push('module.exports.handleUpdate is required')
+  if (hasExportHandleUpdate && !exportIsAsync) errors.push('handleUpdate must be async function')
   if (hasForbidden) errors.push('Forbidden API used (eval/Function/require/fs/child_process/vm/Worker/process)')
   if (!hasSendMessageAwait) errors.push('At least one await ctx.sendMessage(...) call is required')
   if (returnsObjectResponse) errors.push('Returning object response is not allowed; send via ctx.sendMessage')
   if (returnsStringResponse) errors.push('Returning string is not allowed; send via ctx.sendMessage')
   if (usesProcessEnv) errors.push('process/env is not allowed inside bot code')
   if (usesDynamicImport) errors.push('dynamic import() is not allowed')
+  if (hasEsmSyntax) errors.push('ESM import/export is not allowed')
+  if (hasTopLevelEffects) errors.push('Top-level side effects are not allowed')
 
   if (errors.length) {
     const err = new Error('AST validation failed: ' + errors.join('; ')) as any
