@@ -68,19 +68,20 @@
     │   │               • (onRequest) ["handleCors()"]
     │   │               • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
     │   │               • (onResponse) ["anonymous()"]
-    │   ├── events (GET)
-    │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   • (logLevel) ""
-    │   │   • (onRequest) ["handleCors()"]
-    │   │   • (onSend) ["anonymous()","anonymous()"]
-    │   │   • (onResponse) ["anonymous()"]
-    │   │   events (HEAD)
-    │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   • (logLevel) ""
-    │   │   • (onRequest) ["handleCors()"]
-    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
-    │   │   • (onResponse) ["anonymous()"]
     │   ├── api/
+    │   │   ├── nl/
+    │   │   │   ├── chat (POST)
+    │   │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   │   • (logLevel) ""
+    │   │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │   │   • (onResponse) ["anonymous()"]
+    │   │   │   └── spec (POST)
+    │   │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │   │       • (logLevel) ""
+    │   │   │       • (onRequest) ["handleCors()"]
+    │   │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │   │       • (onResponse) ["anonymous()"]
     │   │   ├── bots (POST, GET)
     │   │   │   • (errorHandler) "defaultErrorHandler()"
     │   │   │   • (logLevel) ""
@@ -108,18 +109,24 @@
     │   │   │                   • (onRequest) ["handleCors()"]
     │   │   │                   • (onSend) ["anonymous()","anonymous()"]
     │   │   │                   • (onResponse) ["anonymous()"]
-    │   │   ├── dev/validate-bot (POST)
-    │   │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   │   • (logLevel) ""
-    │   │   │   • (onRequest) ["handleCors()"]
-    │   │   │   • (onSend) ["anonymous()","anonymous()"]
-    │   │   │   • (onResponse) ["anonymous()"]
-    │   │   └── nl/spec (POST)
+    │   │   └── dev/validate-bot (POST)
     │   │       • (errorHandler) "defaultErrorHandler()"
     │   │       • (logLevel) ""
     │   │       • (onRequest) ["handleCors()"]
     │   │       • (onSend) ["anonymous()","anonymous()"]
     │   │       • (onResponse) ["anonymous()"]
+    │   ├── events (GET)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   • (onResponse) ["anonymous()"]
+    │   │   events (HEAD)
+    │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   • (logLevel) ""
+    │   │   • (onRequest) ["handleCors()"]
+    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │   • (onResponse) ["anonymous()"]
     │   ├── spec (OPTIONS, POST)
     │   │   • (errorHandler) "defaultErrorHandler()"
     │   │   • (logLevel) ""

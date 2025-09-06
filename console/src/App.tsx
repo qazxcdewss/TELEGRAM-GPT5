@@ -19,8 +19,13 @@ export default function App() {
   const esRef = useRef<EventSource | null>(null)
   const [engine, setEngine] = useState<'local'|'gpt5'>('local')
   const [testText, setTestText] = useState<string>('/start')
-  const [nlText, setNlText] = useState<string>('Сделай команду /start, которая пишет "Привет!"')
+  const [nlText, setNlText] = useState<string>('Опиши, какого бота вы хотите.')
   const [nlLastPatch, setNlLastPatch] = useState<string>('')
+  const [nlMode, setNlMode] = useState<'patch'|'full'>('patch')
+  const [prefs, setPrefs] = useState({ brand:'Brand', locale:'ru', tone:'neutral', baseApi:'https://api.example.com' })
+  const [nlLoading, setNlLoading] = useState<boolean>(false)
+  const [nlChat, setNlChat] = useState<Array<{role:'user'|'assistant', text:string, ts:number}>>([])
+  const [chatInput, setChatInput] = useState<string>('Привет! Хочу бота для заказа пиццы, начнём со /start и меню sizes.')
 
   // Активный бот и список ботов
   const [bots, setBots] = useState<Array<{ botId: string; title?: string }>>([])
@@ -104,6 +109,7 @@ export default function App() {
 
   async function nlPropose() {
     try {
+      setNlLoading(true)
       const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || API
       let currentSpec: any = null
       const specTrim = (spec || '').trim()
@@ -133,6 +139,48 @@ export default function App() {
       append('[nl] ok')
     } catch (e:any) {
       append('[nl] exception ' + (e?.message || e))
+    } finally {
+      setNlLoading(false)
+    }
+  }
+
+  async function sendChat() {
+    try {
+      setNlLoading(true)
+      const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || API
+      let currentSpec: any = null
+      const specTrim = (spec || '').trim()
+      if (specTrim) { try { currentSpec = JSON.parse(specTrim) } catch { alert('Spec JSON invalid'); return } }
+
+      const history = nlChat.map(m => ({ role: m.role, text: m.text }))
+      const r = await fetch(`${API_BASE}/api/nl/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...history, { role:'user', text: chatInput }], currentSpec, mode: nlMode }),
+      })
+      const txt = await r.text()
+      let j:any = null; try { j = JSON.parse(txt) } catch {}
+      setNlChat(ch => [...ch, { role:'user', text: chatInput, ts: Date.now() }])
+      setChatInput('')
+
+      if (!r.ok) {
+        if (r.status === 422 && j?.draft) {
+          setSpec(JSON.stringify(j.draft, null, 2))
+          setNlChat(ch => [...ch, { role:'assistant', text: 'Я подготовил черновик спеки, но AJV нашёл несоответствия. Проверьте редактор справа, скорректируйте и нажмите Upload.', ts: Date.now() }])
+          return
+        }
+        setNlChat(ch => [...ch, { role:'assistant', text: `Ошибка: ${(j?.error?.code || 'HTTP_'+r.status)}`, ts: Date.now() }])
+        return
+      }
+
+      const assistant = j?.assistant || 'Готово.'
+      setNlChat(ch => [...ch, { role:'assistant', text: assistant, ts: Date.now() }])
+      if (j?.targetSpec) setSpec(JSON.stringify(j.targetSpec, null, 2))
+      if (j?.patch) setNlLastPatch(JSON.stringify(j.patch, null, 2))
+    } catch (e:any) {
+      setNlChat(ch => [...ch, { role:'assistant', text: 'Произошла ошибка на стороне клиента.', ts: Date.now() }])
+    } finally {
+      setNlLoading(false)
     }
   }
 
@@ -361,6 +409,7 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: 'ui-sans-serif, system-ui', padding: 20 }}>
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} .spinner{width:16px;height:16px;border:2px solid #cbd5e1;border-top-color:#111827;border-radius:50%;animation:spin .8s linear infinite;display:inline-block}`}</style>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Bot Console (MVP)</h1>
 
       {/* SSE filter */}
@@ -469,14 +518,30 @@ export default function App() {
 
         <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
           <h2>Spec Assistant</h2>
+          <div style={{ border:'1px solid #f1f1f1', borderRadius:8, padding:8, marginBottom:8, maxHeight:220, overflow:'auto', background:'#fafafa' }}>
+            {nlChat.length === 0 && <div style={{fontSize:12, opacity:.7}}>Начните диалог: опишите бота, который нужен клиенту.</div>}
+            {nlChat.map((m,i)=>(
+              <div key={i} style={{fontSize:12, margin:'4px 0'}}>
+                <b>{m.role==='user'?'Вы':'Ассистент'}:</b> {m.text}
+              </div>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
+            <input value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Напишите сообщение для ассистента…" style={{ flex:1, padding:'6px 8px' }}/>
+            <button onClick={sendChat} disabled={nlLoading || !chatInput.trim()}>Send</button>
+            {nlLoading && <span className="spinner" aria-label="loading" />}
+          </div>
           <textarea
             value={nlText}
             onChange={(e) => setNlText(e.target.value)}
             placeholder='Опиши изменения спеки на естественном языке'
             style={{ width: '100%', height: 120, fontFamily: 'ui-monospace', fontSize: 13 }}
           />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <button onClick={nlPropose}>Propose Patch</button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems:'center' }}>
+            <button onClick={nlPropose} disabled={nlLoading}>
+              {nlLoading ? 'Propose Patch' : 'Propose Patch'}
+            </button>
+            {nlLoading && <span className="spinner" aria-label="loading" />}
             <button onClick={applyNlPatchLocally}>Apply Patch (local)</button>
           </div>
           <div style={{ marginTop: 8 }}>

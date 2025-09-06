@@ -14,6 +14,7 @@ import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
 import * as jsonpatch from 'fast-json-patch'
 import { canonicalize } from '../../lib/canonicalize'
+import { stripMarkdownFences } from '../../lib/botjs-validate'
 import { generateBotJs as generateWithEngine } from './generator-engine'
 import { toInt, byteLenUtf8 } from '../../lib/ints'
 import botsRoutes from './routes/bots'
@@ -71,6 +72,61 @@ async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string
 // ===== AJV (BotSpec v1) =====
 const ajv = new Ajv({ allErrors: true, strict: false })
 addFormats(ajv)
+
+// --- Нормализация «человеческих» конструкций в форму схемы BotSpec v1 ---
+function normalizeSpecShapeTop(draft: any): any {
+  const out = JSON.parse(JSON.stringify(draft || {}))
+  if (Array.isArray(out.commands)) {
+    out.flows = Array.isArray(out.flows) ? out.flows : []
+    const flowsByName = new Map<string, any>()
+    out.commands = out.commands.map((c: any, i: number) => {
+      if (c && typeof c === 'object' && !('cmd' in c) && ('name' in c)) {
+        const flowName = String(c.name || `flow_${i}`)
+        if (Array.isArray(c.steps) && c.steps.length) {
+          const steps = c.steps.map((s: any) =>
+            (s && typeof s === 'object' && 'sendMessage' in s)
+              ? { type:'sendMessage', text: String(s.sendMessage?.text ?? s.sendMessage?.message ?? '') }
+              : s
+          )
+          flowsByName.set(flowName, { name: flowName, steps })
+        }
+        return { cmd: String(c.name || 'cmd'), flow: flowName }
+      }
+      return c
+    })
+    for (const [name, flow] of flowsByName) {
+      const idx = out.flows.findIndex((f: any) => f?.name === name)
+      if (idx >= 0) out.flows[idx] = flow; else out.flows.push(flow)
+    }
+  }
+  if (Array.isArray(out.flows)) {
+    out.flows = out.flows.map((f: any) => {
+      if (!Array.isArray(f?.steps)) return f
+      const steps = f.steps.map((s: any) =>
+        (s && typeof s === 'object' && 'sendMessage' in s)
+          ? { type:'sendMessage', text: String(s.sendMessage?.text ?? s.sendMessage?.message ?? '') }
+          : s
+      )
+      return { ...f, steps }
+    })
+  }
+  return out
+}
+
+async function callGpt(baseUrl: string, apiKey: string, model: string, messages: any[], maxTokens = 1800) {
+  const r = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model, max_completion_tokens: maxTokens, messages }),
+  } as any)
+  const txt = await (r as any).text()
+  let raw = ''
+  try {
+    const j = JSON.parse(txt)
+    raw = String(j?.choices?.[0]?.message?.content ?? '').trim()
+  } catch {}
+  return { ok: (r as any).ok, txt, raw: stripMarkdownFences(raw).trim() }
+}
 
 const BotSpecSchema = {
   $id: "BotSpecV1",
@@ -338,6 +394,87 @@ async function main() {
   app.get('/db/health', async (req, reply) => {
     try { const r = await pool.query('select 1 as ok'); return { ok: r.rows[0]?.ok === 1 } }
     catch (e: any) { return reply.code(500).send({ ok: false, error: e?.message }) }
+  })
+
+  // ===== /api/nl/chat =====
+  // Вход: { messages: [{role:'user'|'assistant', text:string}], currentSpec?: BotSpecV1, mode?: 'patch'|'full' }
+  // Выход: { assistant: string, patch?: RFC6902[], targetSpec?: BotSpecV1, canonical?: string }
+  app.post('/api/nl/chat', async (req, reply) => {
+    try {
+      const body = (req.body || {}) as any
+      const history = Array.isArray(body?.messages) ? body.messages.slice(-10) : []
+      const currentSpec: any = body.currentSpec || null
+      let mode: 'patch'|'full' = (body.mode === 'full' ? 'full' : 'patch')
+      if (!currentSpec) mode = 'full'
+
+      const apiKey = process.env.GPT5_API_KEY!
+      const baseUrl = (process.env.GPT5_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/,'')
+      const model   = process.env.GPT5_MODEL || 'gpt-5'
+      if (!apiKey) return reply.code(500).send({ error:{ code:'GPT5_API_KEY_MISSING' } })
+
+      const systemChat =
+        'Ты ассистент в сервисе по созданию Telegram-ботов. ' +
+        'Общайся с пользователем свободно и дружелюбно, помогай формулировать идеи. ' +
+        'Параллельно мы отдельно запросим генерацию BotSpec — здесь просто отвечай по сути.'
+
+      const systemSpec =
+        'Ты генерируешь BotSpec v1 ТОЛЬКО в формате JSON. ' +
+        'Если mode="patch" — верни массив RFC6902 операций; если mode="full" — верни полный объект спеки. ' +
+        'СХЕМА: {"meta":{"botId":string}, "commands":[{"cmd":string,"flow":string}], ' +
+        '"flows":[{"name":string,"steps":[{"type":"sendMessage"|"goto"|"http","text"?:string,"to"?:string,"url"?:string,"method?":"GET"|"POST","body"?:object|null}]}] }. ' +
+        'В commands запрещены name/triggers/steps — допускаются ТОЛЬКО {"cmd","flow"}.'
+
+      const lastUser = String(history.slice(-1)[0]?.text || '')
+      const chatMsgs = history.map((h:any)=>({ role: h.role === 'assistant' ? 'assistant' : 'user', content: String(h.text||'') }))
+
+      // A) свободный ответ ассистента
+      const { ok:okA, txt:txtA, raw:rawA } = await callGpt(baseUrl, apiKey, model, [
+        { role:'system', content: systemChat },
+        ...chatMsgs,
+        { role:'user', content: lastUser }
+      ], 600)
+      if (!okA) return reply.code(502).send({ error:{ code:'GPT5_HTTP', message: txtA.slice(0,200) } })
+      const assistant = rawA || 'Готов продолжать — расскажите подробнее.'
+
+      // B) отдельный строго-JSON вызов для спеки
+      const canonicalCur = currentSpec ? canonicalize(currentSpec) : null
+      const specPrompt =
+        (canonicalCur ? `currentSpec:\n${canonicalCur}\n\n` : 'currentSpec: null\n\n') +
+        `mode: ${mode}\n` +
+        `intent: ${JSON.stringify({ last_user_message: lastUser })}`
+      const { ok:okB, txt:txtB, raw:rawB } = await callGpt(baseUrl, apiKey, model, [
+        { role:'system', content: systemSpec },
+        { role:'user', content: specPrompt }
+      ], 1500)
+      if (!okB) return reply.code(502).send({ assistant, error:{ code:'GPT5_HTTP', message: txtB.slice(0,200) } })
+      if (!rawB) return reply.send({ assistant })
+
+      // Парсинг JSON, применение patch/full, нормализация и AJV
+      let patch: any[]|undefined, targetSpec:any|undefined
+      let parsed:any
+      try { parsed = JSON.parse(rawB) } catch (e:any) {
+        return reply.code(400).send({ assistant, error:{ code:'JSON_REQUIRED', message: String(e?.message||e) } })
+      }
+      if (Array.isArray(parsed)) {
+        if (!currentSpec) return reply.code(400).send({ assistant, error:{ code:'PATCH_WITHOUT_BASE' } })
+        targetSpec = jsonpatch.applyPatch(JSON.parse(JSON.stringify(currentSpec)), parsed, false).newDocument
+        patch = parsed
+      } else if (parsed && typeof parsed === 'object') {
+        targetSpec = parsed
+      } else {
+        return reply.code(400).send({ assistant, error:{ code:'JSON_NOT_OBJECT_OR_PATCH' } })
+      }
+
+      targetSpec = normalizeSpecShapeTop(targetSpec)
+      const okSpec = validateBotSpec(targetSpec)
+      if (!okSpec) {
+        const details = (validateBotSpec.errors || []).map((e:any) => ({ path: e.instancePath, message: e.message, need: (e as any)?.params?.missingProperty }))
+        return reply.code(422).send({ assistant, error:{ code:'SPEC_INVALID', details }, draft: targetSpec })
+      }
+      return reply.send({ assistant, patch, targetSpec, canonical: canonicalize(targetSpec) })
+    } catch (e:any) {
+      return reply.code(500).send({ error:{ code:'NL_CHAT_ERROR', message: e?.message || String(e) } })
+    }
   })
 
   // SSE
