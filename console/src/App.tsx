@@ -19,6 +19,8 @@ export default function App() {
   const esRef = useRef<EventSource | null>(null)
   const [engine, setEngine] = useState<'local'|'gpt5'>('local')
   const [testText, setTestText] = useState<string>('/start')
+  const [nlText, setNlText] = useState<string>('Сделай команду /start, которая пишет "Привет!"')
+  const [nlLastPatch, setNlLastPatch] = useState<string>('')
 
   // Активный бот и список ботов
   const [bots, setBots] = useState<Array<{ botId: string; title?: string }>>([])
@@ -99,6 +101,62 @@ export default function App() {
 
   const append = (line: string) =>
     setLog((l) => [new Date().toLocaleTimeString() + ' ' + line, ...l].slice(0, 200))
+
+  async function nlPropose() {
+    try {
+      const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || API
+      let currentSpec: any = null
+      const specTrim = (spec || '').trim()
+      if (specTrim) {
+        try { currentSpec = JSON.parse(specTrim) } catch { alert('Spec (справа) не валиден JSON'); return }
+      }
+      const r = await fetch(`${API_BASE}/api/nl/spec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: nlText, currentSpec }),
+      })
+      const txt = await r.text()
+      let j: any = null
+      try { j = JSON.parse(txt) } catch {}
+      if (!r.ok) {
+        if (r.status === 422 && j?.draft) {
+          append('[nl] spec invalid: ' + JSON.stringify(j?.error?.details || [], null, 2))
+          setNlLastPatch(JSON.stringify(j.draft, null, 2))
+          setSpec(JSON.stringify(j.draft, null, 2))
+          return
+        }
+        append('[nl] error ' + (txt || 'HTTP_'+r.status)); alert(txt); return
+      }
+      if (!j) { append('[nl] error: bad JSON'); alert('Bad JSON'); return }
+      setNlLastPatch(JSON.stringify(j.patch ?? j.targetSpec, null, 2))
+      if (j?.targetSpec) setSpec(JSON.stringify(j.targetSpec, null, 2))
+      append('[nl] ok')
+    } catch (e:any) {
+      append('[nl] exception ' + (e?.message || e))
+    }
+  }
+
+  function applyNlPatchLocally() {
+    try {
+      const ops = JSON.parse(nlLastPatch)
+      if (!Array.isArray(ops)) { alert('В буфере не Patch, а полный объект — он уже применён.'); return }
+      const body = JSON.parse(spec || '{}')
+      const apply = (doc:any, op:any) => {
+        const segs = String(op.path || '').split('/').slice(1).map(s=>s.replace(/~1/g,'/').replace(/~0/g,'~'))
+        const parentPath = segs.slice(0, -1)
+        const key = segs[segs.length-1]
+        let cur = doc; for (const s of parentPath) cur = cur[s]
+        if (op.op === 'add' || op.op === 'replace') { (cur as any)[key] = op.value }
+        else if (op.op === 'remove') { if (Array.isArray(cur)) (cur as any).splice(Number(key),1); else delete (cur as any)[key] }
+      }
+      const next = JSON.parse(JSON.stringify(body))
+      for (const op of ops) apply(next, op)
+      setSpec(JSON.stringify(next, null, 2))
+      append('[nl] patch applied locally')
+    } catch (e:any) {
+      alert('Не удалось применить Patch: ' + (e?.message || e))
+    }
+  }
 
   async function refresh() {
     const r1 = await apiFetch(`/revisions?botId=${encodeURIComponent(activeBotId)}`).then((r) => r.json())
@@ -406,6 +464,24 @@ export default function App() {
                 <option value="gpt5">gpt5</option>
               </select>
             </label>
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
+          <h2>Spec Assistant</h2>
+          <textarea
+            value={nlText}
+            onChange={(e) => setNlText(e.target.value)}
+            placeholder='Опиши изменения спеки на естественном языке'
+            style={{ width: '100%', height: 120, fontFamily: 'ui-monospace', fontSize: 13 }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button onClick={nlPropose}>Propose Patch</button>
+            <button onClick={applyNlPatchLocally}>Apply Patch (local)</button>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 12, opacity: .7, marginBottom: 4 }}>Последний ответ (Patch или полная спека):</div>
+            <pre style={{ fontFamily: 'ui-monospace', fontSize: 12, maxHeight: 160, overflow: 'auto', background:'#fafafa', padding:8, borderRadius:8 }}>{nlLastPatch || '—'}</pre>
           </div>
         </div>
 

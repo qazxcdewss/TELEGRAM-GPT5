@@ -12,6 +12,8 @@ import { pgPool } from './db'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
+import * as jsonpatch from 'fast-json-patch'
+import { canonicalize } from '../../lib/canonicalize'
 import { generateBotJs as generateWithEngine } from './generator-engine'
 import { toInt, byteLenUtf8 } from '../../lib/ints'
 import botsRoutes from './routes/bots'
@@ -583,6 +585,145 @@ async function main() {
 
     sendEvent('GenerateSucceeded', { taskId, revHash })
     return reply.code(202).send({ taskId, revHash })
+  })
+
+  // ===== /api/nl/spec =====
+  // Вход: { text: string, currentSpec?: BotSpecV1 }
+  // Выход: { patch?: RFC6902[], targetSpec?: BotSpecV1, warnings?: string[], canonical?: string }
+  app.post('/api/nl/spec', async (req, reply) => {
+    try {
+      const body = (req.body || {}) as any
+      const text: string = String(body.text || '').trim()
+      const currentSpec: any = body.currentSpec || null
+      if (!text) return reply.code(400).send({ error: { code: 'TEXT_REQUIRED' } })
+
+      // 1) System prompt
+      const system =
+        'Ты — конструктор BotSpec v1 для Telegram. Возвращай ТОЛЬКО JSON. ' +
+        'Предпочтительно JSON Patch (RFC-6902); иначе — полный объект. Никакого текста вне JSON. ' +
+        'СХЕМА (важно): ' +
+        '{"meta":{"botId":string}, "commands":[{"cmd":string,"flow":string}], "flows":[{"name":string,"steps":[{"type":"sendMessage"|"goto"|"http","text"?:string,"to"?:string,"url"?:string,"method"?: "GET"|"POST","body"?:object|null}]}] } ' +
+        'ЗАПРЕЩЕНО в commands: "name", "triggers", "steps". Используй ТОЛЬКО {"cmd","flow"}. ' +
+        'Пример: {"commands":[{"cmd":"start","flow":"start"}], "flows":[{"name":"start","steps":[{"type":"sendMessage","text":"Привет!"}]}] }. ' +
+        'Команды распознаются как "/cmd" и "/cmd@ИмяБота".'
+
+      // 2) Prepare messages
+      const apiKey = process.env.GPT5_API_KEY!
+      const baseUrl = (process.env.GPT5_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
+      const model   = process.env.GPT5_MODEL || 'gpt-5'
+      if (!apiKey) return reply.code(500).send({ error:{ code:'GPT5_API_KEY_MISSING' } })
+
+      const currentCanonical = currentSpec ? canonicalize(currentSpec) : undefined
+      const userMsg =
+        (currentCanonical
+          ? `Вот canonical JSON текущей спеки (BotSpec v1):\n${currentCanonical}\n\n`
+          : 'Текущая спека отсутствует.\n') +
+        `Текст запроса пользователя:\n${text}\n\n` +
+        'Верни либо список операций JSON Patch, либо полный целевой объект.'
+
+      // 3) Call GPT-5
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          max_completion_tokens: 1500,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user',   content: userMsg },
+          ],
+        }),
+      } as any)
+      if (!(res as any).ok) {
+        const tx = await (res as any).text().catch(()=> '')
+        return reply.code(502).send({ error:{ code:`GPT5_HTTP_${(res as any).status}`, message: tx.slice(0,200) } })
+      }
+      const j = await (res as any).json()
+      const raw = String(j?.choices?.[0]?.message?.content ?? '').trim()
+      if (!raw) return reply.code(502).send({ error:{ code:'GPT5_EMPTY' } })
+
+      // 4) Parse: try Patch first, else full object
+      let patch: jsonpatch.Operation[] | null = null
+      let targetSpec: any = null
+      let warnings: string[] = []
+      try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.every(op => typeof op === 'object')) {
+          if (!currentSpec) throw new Error('PATCH_WITHOUT_BASE')
+          targetSpec = jsonpatch.applyPatch(JSON.parse(JSON.stringify(currentSpec)), parsed as any, false).newDocument
+          patch = parsed as any
+        } else if (parsed && typeof parsed === 'object') {
+          targetSpec = parsed
+        } else {
+          throw new Error('JSON_NOT_OBJECT_OR_PATCH')
+        }
+      } catch (e:any) {
+        return reply.code(400).send({ error:{ code:'JSON_REQUIRED', message: e?.message || String(e) } })
+      }
+
+      // normalize «человеческий» формат, чтобы пройти схему
+      function normalizeSpecShape(draft: any): any {
+        const out = JSON.parse(JSON.stringify(draft || {}))
+
+        // 1) commands: {name,triggers,steps} -> {cmd,flow} + перенести steps в flows
+        if (Array.isArray(out.commands)) {
+          const flowsByName = new Map<string, any>()
+          out.flows = Array.isArray(out.flows) ? out.flows : []
+
+          out.commands = out.commands.map((c: any, idx: number) => {
+            if (c && typeof c === 'object' && !('cmd' in c) && ('name' in c)) {
+              const flowName = String(c.name || `flow_${idx}`)
+              if (Array.isArray(c.steps) && c.steps.length) {
+                const steps = c.steps.map((s: any) => {
+                  if (s && typeof s === 'object' && 'sendMessage' in s) {
+                    const t = s.sendMessage?.text ?? s.sendMessage?.message ?? ''
+                    return { type: 'sendMessage', text: String(t ?? '') }
+                  }
+                  return s
+                })
+                flowsByName.set(flowName, { name: flowName, steps })
+              }
+              return { cmd: String(c.name || 'cmd'), flow: flowName }
+            }
+            return c
+          })
+
+          for (const [name, flow] of flowsByName) {
+            const i = out.flows.findIndex((f: any) => f?.name === name)
+            if (i >= 0) out.flows[i] = flow
+            else out.flows.push(flow)
+          }
+        }
+
+        // 3) flows[].steps: поддержим вложенный формат {"sendMessage":{...}}
+        if (Array.isArray(out.flows)) {
+          out.flows = out.flows.map((f: any) => {
+            if (!Array.isArray(f?.steps)) return f
+            const steps = f.steps.map((s: any) => {
+              if (s && typeof s === 'object' && 'sendMessage' in s) {
+                const t = s.sendMessage?.text ?? s.sendMessage?.message ?? ''
+                return { type: 'sendMessage', text: String(t ?? '') }
+              }
+              return s
+            })
+            return { ...f, steps }
+          })
+        }
+
+        return out
+      }
+      targetSpec = normalizeSpecShape(targetSpec)
+      // 5) AJV validation of target spec + canonical
+      const ok = validateBotSpec(targetSpec)
+      if (!ok) {
+        warnings.push('AJV_FAILED')
+        return reply.code(422).send({ error:{ code:'SPEC_INVALID', details: validateBotSpec.errors }, draft: targetSpec })
+      }
+      const canonicalText = canonicalize(targetSpec)
+      return reply.send({ patch: patch || undefined, targetSpec, canonical: canonicalText, warnings })
+    } catch (e:any) {
+      return reply.code(500).send({ error:{ code:'NL_SPEC_ERROR', message: e?.message || String(e) } })
+    }
   })
 
   // ===== /revisions ===== — из PG

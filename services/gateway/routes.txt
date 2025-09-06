@@ -108,7 +108,13 @@
     │   │   │                   • (onRequest) ["handleCors()"]
     │   │   │                   • (onSend) ["anonymous()","anonymous()"]
     │   │   │                   • (onResponse) ["anonymous()"]
-    │   │   └── dev/validate-bot (POST)
+    │   │   ├── dev/validate-bot (POST)
+    │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   • (logLevel) ""
+    │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │   • (onResponse) ["anonymous()"]
+    │   │   └── nl/spec (POST)
     │   │       • (errorHandler) "defaultErrorHandler()"
     │   │       • (logLevel) ""
     │   │       • (onRequest) ["handleCors()"]
