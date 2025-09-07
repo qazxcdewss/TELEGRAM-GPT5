@@ -59,7 +59,7 @@
 .tg-outgoing {
   position: relative;
   border-bottom-right-radius: 4px; /* как в ТГ: нижний уголок более острый */
-  padding-right: 26px; /* место под время+галочки */
+  padding-right: 14px; /* меньше зазор справа для времени+галочек */
 }
 .tg-outgoing::after {
   content: "";
@@ -217,4 +217,7 @@
 }
 .tg-checks svg { width: 14px; height: 14px; fill: rgba(255,255,255,.7); }
 .tg-checks.double svg:last-child { margin-left: -6px; }
+
+/* уменьшить зазор галочек до правого края для исходящих */
+.tg-outgoing .tg-metaRow { margin-right: -2px; }
   
