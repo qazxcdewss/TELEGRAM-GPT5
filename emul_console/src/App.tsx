@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { nlChat, simRun, type ChatMsg } from "./api";
-import { Bot, Send, Paperclip, Mic } from "lucide-react";
+import { Bot, Send } from "lucide-react";
+import TgPreview from "./components/TgPreview";
 import clsx from "classnames";
 
 type SpecJson = any;
@@ -47,10 +48,19 @@ export default function App() {
           />
 
           {/* RIGHT: Telegram Emulator */}
-          <TelegramPreview
-            spec={parsedSpec}
-            sessionId={sessionId}
-          />
+          <div className="grid gap-4">
+            <div className="h-[480px]">
+              <TgPreview specJson={specText} />
+            </div>
+            <div className="rounded-xl border border-slate-200 p-2">
+              <h3 className="mb-2 text-sm font-semibold">Spec JSON</h3>
+              <textarea
+                value={specText}
+                onChange={(e) => setSpecText(e.target.value)}
+                className="h-48 w-full resize-none rounded-lg border border-slate-200 p-2 font-mono text-[12px]"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -96,7 +106,6 @@ function AssistantPane(props: {
       setAssistantTyping(false);
     }
   }
-
   return (
     <div className="bg-[#0F1720] rounded-2xl p-4 shadow-soft border border-slate-800 h-[calc(100vh-140px)] flex flex-col">
       <div className="flex items-center gap-2 mb-3">
@@ -176,6 +185,7 @@ function applyPatchShallow(doc:any, patch:any[]) {
   return out;
 }
 
+// Deprecated: kept for reference, not used anymore (replaced by TgPreview)
 function TelegramPreview({ spec, sessionId }:{spec:any|null, sessionId:string}) {
   const [input, setInput] = useState("/start");
   type Row = { role:"me"|"bot"|"date"; text:string; ts:number; buttons?: string[][] }

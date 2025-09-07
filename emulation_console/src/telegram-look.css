@@ -1,0 +1,220 @@
+/* контейнер "окна телеги": узкая колонка, центрируется, тёмная тема */
+.tg-window {
+    height: 100vh;          /* фиксируем на высоту вьюпорта */
+    overflow: hidden;       /* режем наружные переполнения */
+    background: #0f1116;    /* фон вокруг окна (как у TG) */
+    display: grid;
+}
+
+.tg-chat-frame {
+    /* центрируем «рамку» чата и фиксируем её размер */
+    width: min(680px, 100%);
+    height: min(720px, calc(100vh - 32px)); /* фикс, но не выходит за экран */
+    margin: 16px auto;       /* чтобы красиво дышало сверху/снизу */
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    color: #e6e6e6;
+    font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.35);
+}
+
+/* header */
+.tg-header { background:#17212b; display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,.04); }
+.tg-avatar { width: 34px; height: 34px; border-radius: 50%; background:#2a3746; }
+.tg-title { font-weight: 600; }
+.tg-sub   { font-size: 12px; color: #8a98a6; }
+
+/* область сообщений */
+.tg-scroll {
+    background: #0e1621;           /* фон истории (как у ТГ dark) */
+    overflow-y: auto;              /* прокрутка ТОЛЬКО внутри ленты */
+    overflow-x: hidden;
+    padding: 14px 16px 22px;
+}
+
+/* левая колонка тоже фиксированной высоты, середина скроллится */
+.app-left {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+}
+.app-left .app-left-scroll { overflow: auto; }
+
+/* «пилюля» даты */
+.tg-date { text-align: center; margin: 12px 0 16px; }
+.tg-date > span { display: inline-block; background: rgba(255,255,255,.06); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: #8a98a6; }
+
+/* контейнер сообщения: выравнивание слева/справа */
+.tg-row { display: flex; margin: 6px 0; }
+.tg-row.right { justify-content: flex-end; }
+
+/* «бабл» */
+.tg-bubble { max-width: 520px; white-space: pre-wrap; padding: 9px 12px; border-radius: 12px; box-shadow: 0 1px 1px rgba(0,0,0,.35); }
+.tg-incoming  { background: #242f3d;  color: #e6e6e6; }
+.tg-outgoing  { background: #2b5278; color: #fff; }
+
+/* хвостик для outgoing */
+.tg-outgoing {
+  position: relative;
+  border-bottom-right-radius: 4px; /* как в ТГ: нижний уголок более острый */
+  padding-right: 26px; /* место под время+галочки */
+}
+.tg-outgoing::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  background: #2b5278; /* тот же цвет что у tg-outgoing */
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+/* хвостик для incoming */
+.tg-incoming {
+  position: relative;
+  border-bottom-left-radius: 4px;
+  padding-right: 8px; /* чуть отступа для времени */
+}
+.tg-incoming::after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  background: #242f3d; /* тот же цвет что у tg-incoming */
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* inline-кнопки как в ТГ */
+.tg-ik { margin-top: 8px; display: grid; gap: 6px; }
+.tg-ik-row { display: flex; gap: 6px; }
+.tg-ik-row > button { border: 1px solid rgba(255,255,255,.12); background: #17212b; color: #e6e6e6; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+
+/* нижняя панель ввода */
+.tg-input { background: #17212b; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,.04); display: flex; gap: 8px; }
+.tg-input > input { flex: 1; padding: 11px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.08); background: #0f1b26; color: #e6e6e6; }
+.tg-input > button { padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.08); background: #1c2b3a; color: #e6e6e6; }
+
+/* ===== Bottom "Menu" button (Telegram-like) ===== */
+.tg-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #3390ec;   /* телеграм-синий */
+  color: #fff;
+  border: none;
+  transition: background .2s ease;
+}
+.tg-menu-button:hover { background: #45a3ff; }
+
+/* popup со списком команд */
+.tg-menu-popup {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 66px;              /* чуть над инпутом */
+  background: #0e1621;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  max-height: 38vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.tg-menu-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; background: #17212b; color: #8a98a6; font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.tg-menu-list {
+  overflow: auto; padding: 8px;
+}
+
+.tg-menu-item {
+  display: grid; grid-template-columns: auto 1fr; align-items: baseline;
+  gap: 10px; padding: 10px; border-radius: 10px; cursor: pointer;
+}
+.tg-menu-item:hover { background: rgba(255,255,255,.04); }
+.tg-menu-cmd  { color: #50a4e9; font-weight: 700; }
+.tg-menu-desc { color: #8a98a6; font-size: 12px; }
+
+/* Кнопка отправки в виде стрелки */
+.tg-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #3390ec;   /* тот же синий */
+  border: none;
+  cursor: pointer;
+  transition: background .2s ease;
+}
+.tg-send:hover { background: #45a3ff; }
+.tg-send svg {
+  width: 22px;
+  height: 22px;
+  fill: #fff;
+}
+
+/* подпись под сообщением (время + статус) */
+.tg-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(255,255,255,.7);
+  margin-left: 8px;
+}
+
+/* галочки */
+.tg-checks {
+  display: inline-flex;
+  gap: 2px;
+}
+.tg-checks svg {
+  width: 14px;
+  height: 14px;
+  fill: rgba(255,255,255,.7);
+}
+.tg-checks.double svg:last-child {
+  margin-left: -6px; /* как в телеге, немного налазит */
+}
+
+/* общий контейнер подписи под баблом */
+.tg-metaRow {
+  display: inline-flex;
+  align-items: flex-end;  /* <-- вместо center */
+  gap: 4px;
+  font-size: 11px;
+  opacity: .75;
+  margin-left: 6px;
+  vertical-align: bottom; /* садим ниже baseline текста */
+  position: relative;
+  top: 2px;               /* лёгкий сдвиг вниз */
+}
+
+/* время */
+.tg-time { line-height: 1; }
+
+/* галочки (показываем только у исходящих) */
+.tg-checks {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+.tg-checks svg { width: 14px; height: 14px; fill: rgba(255,255,255,.7); }
+.tg-checks.double svg:last-child { margin-left: -6px; }
+  
