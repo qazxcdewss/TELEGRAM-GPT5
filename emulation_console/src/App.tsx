@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRoot } from '@telegram-apps/telegram-ui'
+import AiChatPane from './components/AiChatPane'
 
 const API      = (window as any).API       || (import.meta as any).env?.VITE_API       || 'http://localhost:3000'
 const BOT_ID0  = (window as any).BOT_ID    || (import.meta as any).env?.VITE_BOT_ID    || 'my-bot-1'
@@ -115,18 +116,9 @@ export default function App() {
 
   return (
     <AppRoot appearance="light">{/* поменяй на "dark", если хочешь тёмную */}
-      <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', height: '100vh' }}>
-        {/* LEFT */}
-        <div className="app-left" style={{ borderRight: '1px solid #eee' }}>
-          <div style={{ padding: 16, fontSize: 12, color: '#666' }}>Здесь будет чат со спеками / ревизиями. Пока — заглушка.</div>
-          {/* середина скроллится, а не растягивает страницу */}
-          <div className="app-left-scroll" style={{ padding: 16 }}>
-            <textarea value={assistantDraft} onChange={e=>setAssistantDraft(e.target.value)} placeholder="Опишите изменения…" style={{ width: '100%', height: 140 }} />
-          </div>
-          <div style={{ padding: 16, borderTop: '1px solid #eee' }}>
-            <button onClick={()=>alert('TODO: /spec → /generate → /deploy')}>Send to Spec (todo)</button>
-          </div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px, 480px) 1fr', height: '100vh' }}>
+        {/* LEFT: AI Chat Pane */}
+        <AiChatPane />
 
         {/* ===== RIGHT: Telegram-like window ===== */}
         <div className="tg-window">
