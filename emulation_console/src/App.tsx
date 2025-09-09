@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRoot } from '@telegram-apps/telegram-ui'
 import AiChatPane from './components/AiChatPane'
+import './index.css'
 import { API_BASE, getActiveBotId, setActiveBotId as setActiveBotIdGlobal } from './lib/api'
 import { loadState } from './lib/storage'
 
@@ -11,6 +12,7 @@ const uid = () => Math.random().toString(36).slice(2)
 const fmtDateChip = (ts: number) => new Date(ts).toLocaleDateString(undefined, { day: '2-digit', month: 'long' })
 
 export default function App() {
+  const [emuCollapsed, setEmuCollapsed] = useState(false)
   const [activeBotId, setActiveBotId] = useState<string>(() => localStorage.getItem('activeBotId') || BOT_ID0)
   const [input, setInput] = useState('/start')
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -119,63 +121,49 @@ export default function App() {
 
   return (
     <AppRoot appearance="light">
-      <div className="app-shell">
-        {/* левая колонка — AI ассистент */}
-        <div className="col">
-          <div className="col__header">
-            <div className="col__title">Spec Assistant</div>
-            <div className="col__tools" />
-          </div>
-          <div className="col__scroll">
-            <AiChatPane />
-          </div>
-          <div className="col__footer" />
-        </div>
+      <div className="layout">
+        {/* ===== LEFT: Spec Assistant ===== */}
+        <aside className="left-pane">
+          <AiChatPane />
+        </aside>
 
-        {/* правая колонка — телеграм-эмулятор (как было) */}
-        <div className="col">
-          <div className="col__scroll">
+        {/* ===== RIGHT: Emulator ===== */}
+        <section className={`right-pane ${emuCollapsed ? 'is-collapsed' : ''}`}>
+          <header className="emu-header">
+            <div className="emu-title">Bot Emulator</div>
+            <div className="emu-tools">
+              <span className="tg-sub">Emu:</span>
+              <select value={mode} onChange={e=>setMode(e.target.value as EmuMode)} style={{ padding:'6px 8px', borderRadius:8 }}>
+                <option value="auto">Auto (Draft→Active)</option>
+                <option value="spec">Draft (by spec → bot.js)</option>
+                <option value="active">Active (current)</option>
+                <option value="rev">Rev (revHash)</option>
+              </select>
+              <span className="tg-sub">Engine:</span>
+              <select value={engine} onChange={e=>setEngine(e.target.value as Engine)} style={{ padding:'6px 8px', borderRadius:8 }}>
+                <option value="local">local</option>
+                <option value="gpt5">gpt5</option>
+              </select>
+              {mode==='rev' && (
+                <input value={revHash} onChange={e=>setRevHash(e.target.value)} placeholder="revHash" style={{minWidth:260}} />
+              )}
+              <span className="tg-sub">bot id</span>
+              <input
+                value={activeBotId}
+                onChange={e=>{ setActiveBotId(e.target.value); setActiveBotIdGlobal(e.target.value) }}
+                style={{ padding:'6px 8px', minWidth:200, borderRadius:8,
+                         border:'1px solid rgba(255,255,255,.08)',
+                         background:'#0f1b26', color:'#e6e6e6' }}
+              />
+            </div>
+            <button className="emu-toggle" onClick={()=>setEmuCollapsed(v=>!v)} aria-expanded={!emuCollapsed}>
+              {emuCollapsed ? 'Развернуть чат' : 'Свернуть чат'}
+            </button>
+          </header>
+          <div className="emu-body">
             <div className="tg-window">
               <div className="tg-chat-frame">
                 <div className="right-pane">
-                  <div className="right-pane__header">
-                    <div className="tg-header">
-                      <div className="tg-avatar" />
-                      <div style={{lineHeight: 1.2}}>
-                        <div className="tg-title">Bot Emulator</div>
-                        <div className="tg-sub">bot • {activeBotId}</div>
-                      </div>
-                      <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
-                        <span className="tg-sub">Emu:</span>
-                        <select value={mode} onChange={e=>setMode(e.target.value as EmuMode)} style={{ padding:'6px 8px', borderRadius:8 }}>
-                          <option value="auto">Auto (Draft→Active)</option>
-                          <option value="spec">Draft (by spec → bot.js)</option>
-                          <option value="active">Active (current)</option>
-                          <option value="rev">Rev (revHash)</option>
-                        </select>
-
-                        <span className="tg-sub">Engine:</span>
-                        <select value={engine} onChange={e=>setEngine(e.target.value as Engine)} style={{ padding:'6px 8px', borderRadius:8 }}>
-                          <option value="local">local</option>
-                          <option value="gpt5">gpt5</option>
-                        </select>
-
-                        {mode==='rev' && (
-                          <input value={revHash} onChange={e=>setRevHash(e.target.value)} placeholder="revHash" style={{minWidth:260}} />
-                        )}
-
-                        <span className="tg-sub">bot id</span>
-                        <input
-                          value={activeBotId}
-                          onChange={e=>{ setActiveBotId(e.target.value); setActiveBotIdGlobal(e.target.value) }}
-                          style={{ padding:'6px 8px', minWidth:200, borderRadius:8,
-                                   border:'1px solid rgba(255,255,255,.08)',
-                                   background:'#0f1b26', color:'#e6e6e6' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
                   <div className="right-pane__chat">
                     <div className="right-pane__scroll">
                       <div className="tg-scroll-inner">
@@ -217,7 +205,6 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-
                   <div className="right-pane__input">
                     <div className="tg-input" style={{ position: 'relative' }}>
                       <div className="tg-menu-button" onClick={menuOpen ? closeMenu : openMenu}>
@@ -238,7 +225,6 @@ export default function App() {
                       <button className="tg-send" onClick={() => { if (input.trim()) { send(input); setInput('') } }}>
                         <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
                       </button>
-
                       {menuOpen && (
                         <div className="tg-menu-popup">
                           <div className="tg-menu-head">
@@ -259,15 +245,13 @@ export default function App() {
                           </div>
                         </div>
                       )}
-
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <div className="col__footer" />
-        </div>
+        </section>
       </div>
     </AppRoot>
   )

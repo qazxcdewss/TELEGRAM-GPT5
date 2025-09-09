@@ -78,6 +78,67 @@
   font-size: 12px;
 }
 
+/* === PAGE LAYOUT: две колонки, слева ассистент, справа эмулятор === */
+html, body, #root { height: 100%; }
+
+.layout {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(380px, 520px) 1fr; /* фикс левая, адаптив правая */
+  gap: 16px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* левая колонка */
+.left-pane {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 1fr;    /* весь контент внутри, сам решит скролл */
+  background: var(--pane-left, #0b1220);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* правая колонка = шапка + тело чата */
+.right-pane {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+/* шапка эмулятора всегда видна */
+.emu-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--pane-header, #141b2a);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 10px 10px 0 0;
+}
+.emu-title { font-weight: 700; }
+.emu-tools { margin-left: auto; display: flex; gap: 8px; }
+
+/* кнопка складывания чата */
+.emu-toggle {
+  background: var(--btn, #2b74ff);
+  color: #fff; border: 0; padding: 8px 12px;
+  border-radius: 999px; cursor: pointer; font-weight: 600;
+}
+
+/* тело чата со своим скроллом */
+.emu-body {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border, #1e293b);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--pane-right, #0b1220);
+}
+
+/* режим «складной» — оставляем только шапку, тело скрываем */
+.right-pane.is-collapsed .emu-body { display: none; }
+
 a {
   font-weight: 500;
   color: #646cff;
