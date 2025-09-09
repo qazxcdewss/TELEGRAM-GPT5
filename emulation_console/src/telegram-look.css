@@ -1,6 +1,6 @@
 /* контейнер "окна телеги": узкая колонка, центрируется, тёмная тема */
 .tg-window {
-    height: 100vh;          /* фиксируем на высоту вьюпорта */
+    height: 100%;           /* заполняем высоту колонки, не увеличивая страницу */
     overflow: hidden;       /* режем наружные переполнения */
     background: #0f1116;    /* фон вокруг окна (как у TG) */
     display: grid;
@@ -9,10 +9,10 @@
 .tg-chat-frame {
     /* центрируем «рамку» чата и фиксируем её размер */
     width: min(680px, 100%);
-    height: min(720px, calc(100vh - 32px)); /* фикс, но не выходит за экран */
-    margin: 16px auto;       /* чтобы красиво дышало сверху/снизу */
+    height: 100%;            /* ровно по высоте колонки */
+    margin: 0 auto;          /* центрируем по горизонтали, без вертикальных отступов */
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: 1fr; /* внутреннюю разбивку даёт .right-pane */
     color: #e6e6e6;
     font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
     border-radius: 10px;
@@ -28,19 +28,50 @@
 /* область сообщений */
 .tg-scroll {
     background: #0e1621;           /* фон истории (как у ТГ dark) */
-    overflow-y: auto;              /* прокрутка ТОЛЬКО внутри ленты */
-    overflow-x: hidden;
+    overflow: visible;             /* скролл теперь на .right-pane__scroll */
     padding: 14px 16px 22px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* левая колонка тоже фиксированной высоты, середина скроллится */
 .app-left {
-  height: 100vh;
+  height: 100%;
   display: grid;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
 }
-.app-left .app-left-scroll { overflow: auto; }
+.app-left .app-left-scroll { overflow: auto; min-height: 0; }
+
+/* правая колонка: фиксируем хедер, чат скроллится, инпут снизу */
+.right-pane {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+}
+.right-pane__header {
+  padding: 0; /* внутренние блоки уже с отступами */
+  border-bottom: 1px solid #1e293b;
+  background: #0b1220;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.right-pane__chat {
+  overflow: hidden;
+  min-height: 0;
+}
+.right-pane__input {
+  border-top: 1px solid #1e293b;
+}
+
+/* высота ленты правого чата заполняет доступную область */
+.right-pane__scroll {
+  overflow-y: auto;   /* вертикальная полоса справа */
+  overflow-x: hidden; /* убираем горизонтальную */
+  min-height: 0;
+  height: 100%;
+}
 
 /* «пилюля» даты */
 .tg-date { text-align: center; margin: 12px 0 16px; }

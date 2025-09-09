@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { postNlChat } from '../lib/api'
+import { nlChat, nlSpec } from '../lib/api'
 import { applyPatch, type Op } from '../lib/patch'
 import { loadState, saveState, resetState } from '../lib/storage'
 import MessageBubble from './MessageBubble'
@@ -35,32 +35,28 @@ export default function AiChatPane() {
       .filter(m => m.role==='user' || m.role==='assistant').slice(-10)
       .map(m => ({ role: m.role as 'user'|'assistant', text: m.text }))
 
-    const r = await postNlChat({ messages: history, currentSpec: draft || null, mode })
-    setLoading(false)
-
-    if (!r.ok && r.status === 422 && (r.data as any)?.draft) {
-      setDraft((r.data as any).draft)
-      setMessages(m => [...m, {
-        id: rid(), role:'assistant', text: (r.data as any)?.assistant || 'Черновик спецификации сформирован, но содержит ошибки.',
-        ts: Date.now(), attachments: [{ kind:'draft', data: (r.data as any).draft }]
-      }])
-      return
+    try {
+      const resp = await nlChat({ messages: history, currentSpec: draft || null, mode })
+      const attachments: UiMsg['attachments'] = []
+      if (Array.isArray(resp?.patch)) attachments.push({ kind:'patch', data: resp.patch })
+      if (resp?.targetSpec) { setDraft(resp.targetSpec); attachments.push({ kind:'full-spec', data: resp.targetSpec }) }
+      setMessages(m => [...m, { id: rid(), role:'assistant', text: resp?.assistant || 'Готово.', ts: Date.now(), attachments }])
+    } catch (e:any) {
+      const r = await nlSpec(text, draft || null)
+      if (!r.ok && r.status === 422 && (r.data as any)?.draft) {
+        setDraft((r.data as any).draft)
+        setMessages(m => [...m, {
+          id: rid(), role:'assistant',
+          text: (r.data as any)?.assistant || 'Черновик спеки сформирован, но содержит ошибки (AJV).',
+          ts: Date.now(),
+          attachments: [{ kind:'draft', data: (r.data as any).draft }]
+        }])
+        setLoading(false); return
+      }
+      setMessages(m => [...m, { id: rid(), role:'assistant', text: 'Ошибка: '+(e?.message||'NL failed'), ts: Date.now() }])
+    } finally {
+      setLoading(false)
     }
-    if (!r.ok) {
-      setMessages(m => [...m, { id: rid(), role:'assistant', text: `Ошибка: ${(r.data as any)?.error?.code || 'HTTP_'+r.status}`, ts: Date.now() }])
-      return
-    }
-
-    const assistant = (r.data as any)?.assistant || 'Готово.'
-    const patch: Op[]|undefined = (r.data as any)?.patch
-    const targetSpec = (r.data as any)?.targetSpec
-
-    const attachments: UiMsg['attachments'] = []
-    if (Array.isArray(patch)) attachments.push({ kind:'patch', data: patch })
-    if (targetSpec) attachments.push({ kind:'full-spec', data: targetSpec })
-
-    setMessages(m => [...m, { id: rid(), role:'assistant', text: assistant, ts: Date.now(), attachments }])
-    if (targetSpec) setDraft(targetSpec)
   }
 
   function applyPatchLocally(ops: Op[]) {
@@ -72,8 +68,8 @@ export default function AiChatPane() {
   function clearAll() { resetState(); setMessages([]); setDraft(null) }
 
   return (
-    <div style={{ height:'100%', display:'grid', gridTemplateRows:'auto 1fr auto', background:'#0b1220', borderRight:'1px solid #1e293b' }}>
-      <div style={{ padding:14, borderBottom:'1px solid #1e293b', display:'flex', gap:12, alignItems:'center' }}>
+    <div className="ai-pane" style={{ height:'100%', display:'grid', gridTemplateRows:'auto 1fr auto', background:'#0b1220', borderRight:'1px solid #1e293b', overflow:'hidden' }}>
+      <div className="ai-pane__header" style={{ padding:14, borderBottom:'1px solid #1e293b', display:'flex', gap:12, alignItems:'center' }}>
         <div style={{ fontWeight:700 }}>Spec Assistant</div>
         <div style={{ fontSize:12, color:'#9ca3af' }}>{draft ? 'Draft: in memory (не применён)' : 'Draft: empty'}</div>
         <div style={{ marginLeft:'auto', display:'flex', gap:10 }}>
@@ -89,7 +85,7 @@ export default function AiChatPane() {
         </div>
       </div>
 
-      <div ref={scrollRef} style={{ overflow:'auto', padding:14 }}>
+      <div className="ai-pane__scroll" ref={scrollRef} style={{ overflow:'auto', padding:14, minHeight:0 }}>
         <div style={{ display:'grid', gap:10 }}>
           {messages.map(m => (
             <div key={m.id} style={{ display:'grid', gap:8 }}>
@@ -109,7 +105,7 @@ export default function AiChatPane() {
         </div>
       </div>
 
-      <div style={{ padding:12, borderTop:'1px solid #1e293b', display:'grid', gap:8 }}>
+      <div className="ai-pane__input" style={{ padding:12, borderTop:'1px solid #1e293b', display:'grid', gap:8 }}>
         <div style={{ display:'flex', gap:8 }}>
           <input
             placeholder="Опиши идею бота, команды, сценарии…"

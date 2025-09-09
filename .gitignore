@@ -23,5 +23,3 @@ pnpm-debug.log*
 
 # Docker local data
 docker-data/
-
-

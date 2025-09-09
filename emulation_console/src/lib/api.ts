@@ -1,32 +1,53 @@
-export type ChatMsg = { role: 'user'|'assistant'; text: string }
-export type NlChatRequest = { messages: ChatMsg[]; currentSpec?: any; mode?: 'patch'|'full' }
-export type NlChatResponse = {
-  assistant: string
-  patch?: Array<{ op: 'add'|'remove'|'replace'; path: string; value?: any }>
-  targetSpec?: any
-  canonical?: string
+export const API_BASE =
+  (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
+
+let activeBotId =
+  localStorage.getItem('activeBotId') ||
+  (window as any).BOT_ID || (import.meta as any).env?.VITE_BOT_ID || 'my-bot-1'
+
+export function getActiveBotId() { return activeBotId }
+export function setActiveBotId(id: string) {
+  activeBotId = id
+  localStorage.setItem('activeBotId', id)
 }
 
-const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
-export const DEFAULT_BOT = (window as any).BOT_ID || (import.meta as any).env?.VITE_BOT_ID || 'my-bot-1'
-
-async function jsonFetch(path: string, init?: RequestInit) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers||{}) }
-  } as RequestInit)
-  const text = await res.text()
-  let data: any = null; try { data = text ? JSON.parse(text) : null } catch {}
-  return { ok: (res as any).ok as boolean, status: (res as any).status as number, data, text }
+export async function apiFetch(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {})
+  if (activeBotId) headers.set('x-bot-id', activeBotId)
+  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  if (!res.ok) {
+    const t = await res.text().catch(()=> '')
+    throw new Error(t || `HTTP_${res.status}`)
+  }
+  return res
 }
 
-export const postNlChat = (body: NlChatRequest) =>
-  jsonFetch('/api/nl/chat', { method:'POST', body: JSON.stringify(body) })
+// ——— NL endpoints ———
+export type ChatMsg = { role:'user'|'assistant'; text:string }
+export async function nlChat(body: { messages: ChatMsg[]; currentSpec?: any; mode?: 'patch'|'full' }) {
+  const r = await apiFetch('/api/nl/chat', { method:'POST', body: JSON.stringify(body) })
+  return r.json()
+}
+export async function nlSpec(text: string, currentSpec?: any) {
+  const r = await fetch(`${API_BASE}/api/nl/spec`, {
+    method:'POST', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ text, currentSpec })
+  })
+  const tx = await r.text().catch(()=> ''); const j = tx ? JSON.parse(tx) : null
+  return { ok: r.ok, status: r.status, data: j }
+}
 
-export const postNlSpec = (text: string, currentSpec?: any) =>
-  jsonFetch('/api/nl/spec', { method:'POST', body: JSON.stringify({ text, currentSpec }) })
+// ——— Spec / Generate / Deploy (1:1 с console) ———
+export const uploadSpec   = (botId: string, spec: any) =>
+  apiFetch('/spec',    { method:'POST', body: JSON.stringify({ botId, spec }) })
+export const generateCode = (body: { botId:string; engine:'local'|'gpt5'; specVersion?: number }) =>
+  apiFetch('/generate', { method:'POST', body: JSON.stringify(body) })
+export const deployRev    = (botId: string, revHash: string) =>
+  apiFetch('/deploy',  { method:'POST', body: JSON.stringify({ botId, revHash }) })
 
-export const getActiveRev = (botId = DEFAULT_BOT) =>
-  jsonFetch(`/bots/${encodeURIComponent(botId)}`)
+export const listRevisions = (botId: string) => apiFetch(`/revisions?botId=${encodeURIComponent(botId)}`).then(r=>r.json())
+export const getBot        = (botId: string) => apiFetch(`/bots/${encodeURIComponent(botId)}`).then(r=>r.json())
+export const listBots      = () => apiFetch('/api/bots').then(r=>r.json()).catch(()=>[])
 
 

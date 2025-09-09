@@ -13,6 +13,7 @@ import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import multipart from '@fastify/multipart'
 import * as jsonpatch from 'fast-json-patch'
+import vm from 'node:vm'
 import { canonicalize } from '../../lib/canonicalize'
 import { stripMarkdownFences } from '../../lib/botjs-validate'
 import { generateBotJs as generateWithEngine } from './generator-engine'
@@ -20,6 +21,7 @@ import { toInt, byteLenUtf8 } from '../../lib/ints'
 import botsRoutes from './routes/bots'
 import devRoutes from './routes/dev'
 import { findBySecret, getSecret } from './bots-repo'
+import { generateBotJs, type Engine } from './generator-engine'
 
 
 
@@ -353,9 +355,23 @@ app.log.info('SSE relay enabled')
 
 async function main() {
     await app.register(cors, {
-      origin: [CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+      origin: (origin, cb) => {
+        const o = String(origin || '')
+        const allow = new Set([
+          CONSOLE_ORIGIN,
+          'http://localhost:5173',
+          'http://127.0.0.1:5173',
+          'http://localhost:5174',
+          'http://127.0.0.1:5174',
+        ])
+        cb(null, allow.has(o))
+      },
       methods: ['GET','POST','OPTIONS'],
-      allowedHeaders: ['Content-Type','If-Match','If-None-Match','x-bot-secret','x-bot-id'],
+      allowedHeaders: [
+        'Content-Type',
+        'If-Match', 'If-None-Match',
+        'x-bot-id', 'x-bot-secret',
+      ],
       credentials: true,
     })
   
@@ -377,6 +393,9 @@ async function main() {
       return payload as any
     })
   
+    // ---- Emulator routes (spec/active/rev → bot.js → sandboxed exec) ----
+    await registerEmuRoutes(app)
+
     await ensureTables()
     // preload active revisions из PG (чтобы после рестарта помнить flip)
     try {
@@ -863,6 +882,20 @@ async function main() {
     }
   })
 
+  // Явный preflight для /api/nl/*
+  app.options('/api/nl/*', async (req, reply) => {
+    const origin = String(req.headers.origin || '')
+    const allow = new Set([CONSOLE_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174'])
+    if (allow.has(origin)) reply.header('Access-Control-Allow-Origin', origin)
+    reply
+      .header('Vary', 'Origin')
+      .header('Access-Control-Allow-Headers', 'Content-Type, If-Match, If-None-Match, x-bot-id, x-bot-secret')
+      .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      .header('Access-Control-Allow-Credentials', 'true')
+      .code(204)
+      .send()
+  })
+
   // ===== /revisions ===== — из PG
   app.get('/revisions', async (req, reply) => {
     const botId = (req.query as any).botId
@@ -1063,3 +1096,59 @@ async function main() {
 
 }
 main().catch((e) => { console.error(e); process.exit(1) })
+
+// ---- Emulator registration ----
+export async function registerEmuRoutes(app: import('fastify').FastifyInstance) {
+  app.post('/emu/wh', async (req, reply) => {
+    try {
+      const body = (req.body || {}) as any
+      const botId: string = String(body?.botId || req.headers['x-bot-id'] || 'dev-bot')
+      const mode: 'spec'|'active'|'rev' = (body?.mode === 'rev' ? 'rev' : body?.mode === 'active' ? 'active' : 'spec')
+      const engine: Engine = (body?.engine === 'gpt5' ? 'gpt5' : 'local')
+      const update = body?.update
+      const spec = body?.spec
+      const specVersion = body?.specVersion
+      const revHash = body?.revHash
+
+      let botJs: string | null = null
+      if (mode === 'spec') {
+        if (!spec && !specVersion) return reply.code(400).send({ ok:false, error:'SPEC_REQUIRED' })
+        const effectiveSpec = spec ?? await loadSpecByVersion(botId, specVersion!)
+        botJs = await generateBotJs(effectiveSpec, engine)
+      } else if (mode === 'rev') {
+        botJs = await loadBotJsFromStorage(botId, revHash!)
+      } else {
+        botJs = await loadActiveBotJs(botId)
+      }
+      if (!botJs) return reply.code(404).send({ ok:false, error:'BOT_JS_NOT_FOUND' })
+
+      const out: Array<{ text: string; options?: any }> = []
+      const stateStore = new Map<string, any>()
+      const ctx = {
+        update,
+        async sendMessage(text: any, options?: any) {
+          const norm =
+            typeof text === 'string' ? text :
+            text == null ? '' :
+            typeof text === 'object' ? JSON.stringify(text, null, 2) :
+            String(text)
+          out.push({ text: norm, options })
+        },
+        async getState() { return stateStore.get(botId) || {} },
+        async setState(next: any) { stateStore.set(botId, next) },
+      }
+      const sandbox: any = { module: { exports: {} }, exports: {}, console, setTimeout, clearTimeout }
+      vm.runInNewContext(botJs, sandbox, { timeout: 1000 })
+      const handler = sandbox.module?.exports?.handleUpdate
+      if (typeof handler !== 'function') return reply.code(400).send({ ok:false, error:'MISSING_EXPORT_handleUpdate' })
+      await Promise.resolve(handler(ctx))
+      return reply.send({ ok:true, messages: out, state: await ctx.getState() })
+    } catch (e:any) {
+      return reply.code(500).send({ ok:false, error: e?.message || 'EMU_FAIL' })
+    }
+  })
+}
+
+async function loadActiveBotJs(_botId: string): Promise<string|null> { return null }
+async function loadBotJsFromStorage(_botId: string, _rev: string): Promise<string|null> { return null }
+async function loadSpecByVersion(_botId: string, _v: number): Promise<any> { return null }

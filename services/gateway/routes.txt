@@ -11,6 +11,25 @@
     │   • (onRequest) ["handleCors()"]
     │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
     │   • (onResponse) ["anonymous()"]
+    │   ├── e
+    │   │   ├── mu/wh (POST)
+    │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   • (logLevel) ""
+    │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │   • (onResponse) ["anonymous()"]
+    │   │   └── vents (GET)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()"]
+    │   │       • (onResponse) ["anonymous()"]
+    │   │       vents (HEAD)
+    │   │       • (errorHandler) "defaultErrorHandler()"
+    │   │       • (logLevel) ""
+    │   │       • (onRequest) ["handleCors()"]
+    │   │       • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
+    │   │       • (onResponse) ["anonymous()"]
     │   ├── health (GET)
     │   │   • (errorHandler) "defaultErrorHandler()"
     │   │   • (logLevel) ""
@@ -76,7 +95,13 @@
     │   │   │   │   • (onRequest) ["handleCors()"]
     │   │   │   │   • (onSend) ["anonymous()","anonymous()"]
     │   │   │   │   • (onResponse) ["anonymous()"]
-    │   │   │   └── spec (POST)
+    │   │   │   ├── spec (POST)
+    │   │   │   │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │   │   • (logLevel) ""
+    │   │   │   │   • (onRequest) ["handleCors()"]
+    │   │   │   │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │   │   • (onResponse) ["anonymous()"]
+    │   │   │   └── * (OPTIONS)
     │   │   │       • (errorHandler) "defaultErrorHandler()"
     │   │   │       • (logLevel) ""
     │   │   │       • (onRequest) ["handleCors()"]
@@ -115,18 +140,6 @@
     │   │       • (onRequest) ["handleCors()"]
     │   │       • (onSend) ["anonymous()","anonymous()"]
     │   │       • (onResponse) ["anonymous()"]
-    │   ├── events (GET)
-    │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   • (logLevel) ""
-    │   │   • (onRequest) ["handleCors()"]
-    │   │   • (onSend) ["anonymous()","anonymous()"]
-    │   │   • (onResponse) ["anonymous()"]
-    │   │   events (HEAD)
-    │   │   • (errorHandler) "defaultErrorHandler()"
-    │   │   • (logLevel) ""
-    │   │   • (onRequest) ["handleCors()"]
-    │   │   • (onSend) ["anonymous()","anonymous()","headRouteOnSendHandler()"]
-    │   │   • (onResponse) ["anonymous()"]
     │   ├── spec (OPTIONS, POST)
     │   │   • (errorHandler) "defaultErrorHandler()"
     │   │   • (logLevel) ""

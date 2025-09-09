@@ -18,3 +18,4 @@ export default function MessageBubble({ role, children }:{role:'user'|'assistant
 }
 
 
+
