@@ -161,93 +161,81 @@ export default function App() {
             </button>
           </header>
           <div className="emu-body">
-            <div className="tg-window">
-              <div className="tg-chat-frame">
-                <div className="right-pane">
-                  <div className="right-pane__chat">
-                    <div className="right-pane__scroll">
-                      <div className="tg-scroll-inner">
-                        {withDateChips.map(item =>
-                          'chip' in item ? (
-                            <div key={item.key} className="tg-date"><span>{item.chip}</span></div>
-                          ) : (
-                            <div key={item.id} className={`tg-row ${item.who==='user' ? 'right' : ''}`}>
-                              <div className={`tg-bubble ${item.who==='user' ? 'tg-outgoing' : 'tg-incoming'}`}>
-                                <span style={{ whiteSpace: 'pre-wrap' }}>{item.text}</span>
-                                <span className="tg-metaRow">
-                                  <span className="tg-time">
-                                    {new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                  {item.who === 'user' && (
-                                    <span className="tg-checks double">
-                                      <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
-                                      <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
-                                    </span>
-                                  )}
-                                </span>
-
-                                {item.buttons?.length ? (
-                                  <div className="tg-ik">
-                                    {item.buttons.map((row, ri) => (
-                                      <div className="tg-ik-row" key={ri}>
-                                        {row.map((b, bi) => (
-                                          <button key={bi} onClick={()=>onButtonClick(b)}>{b.text}</button>
-                                        ))}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          )
+            <div className="emu-feed">
+              <div className="emu-feed__spacer" />
+              {withDateChips.map(item =>
+                'chip' in item ? (
+                  <div key={item.key} className="tg-date"><span>{item.chip}</span></div>
+                ) : (
+                  <div key={item.id} className={`tg-row ${item.who==='user' ? 'right' : ''}`}>
+                    <div className={`tg-bubble ${item.who==='user' ? 'tg-outgoing' : 'tg-incoming'}`}>
+                      <span style={{ whiteSpace: 'pre-wrap' }}>{item.text}</span>
+                      <span className="tg-metaRow">
+                        <span className="tg-time">
+                          {new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {item.who === 'user' && (
+                          <span className="tg-checks double">
+                            <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
+                            <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
+                          </span>
                         )}
-                        <div ref={endRef} />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="right-pane__input">
-                    <div className="tg-input" style={{ position: 'relative' }}>
-                      <div className="tg-menu-button" onClick={menuOpen ? closeMenu : openMenu}>
-                        Меню
-                      </div>
-                      <input
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault()
-                            input.trim() && (send(input), setInput(''))
-                          }
-                        }}
-                        placeholder="Сообщение…"
-                        style={{ marginLeft: 8 }}
-                      />
-                      <button className="tg-send" onClick={() => { if (input.trim()) { send(input); setInput('') } }}>
-                        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-                      </button>
-                      {menuOpen && (
-                        <div className="tg-menu-popup">
-                          <div className="tg-menu-head">
-                            <div>Команды бота</div>
-                            <button onClick={closeMenu} style={{ padding: '6px 10px', borderRadius: 8 }}>Закрыть</button>
-                          </div>
-                          <div className="tg-menu-list">
-                            {loadingCmds && <div style={{ padding: 10, color: '#8a98a6' }}>Загрузка…</div>}
-                            {!loadingCmds && (!commands || commands.length === 0) && (
-                              <div style={{ padding: 10, color: '#8a98a6' }}>Команд не найдено</div>
-                            )}
-                            {!loadingCmds && commands?.map((c, i) => (
-                              <div key={i} className="tg-menu-item" onClick={()=>applyCommand(c.command)}>
-                                <div className="tg-menu-cmd">/{c.command.replace(/^\//,'')}</div>
-                                <div className="tg-menu-desc">{c.description || ''}</div>
-                              </div>
-                            ))}
-                          </div>
+                      </span>
+                      {item.buttons?.length ? (
+                        <div className="tg-ik">
+                          {item.buttons.map((row, ri) => (
+                            <div className="tg-ik-row" key={ri}>
+                              {row.map((b, bi) => (
+                                <button key={bi} onClick={()=>onButtonClick(b)}>{b.text}</button>
+                              ))}
+                            </div>
+                          ))}
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
-                </div>
+                )
+              )}
+              <div ref={endRef} id="emu-bottom-sentinel" />
+            </div>
+            <div className="emu-input">
+              <div className="tg-input" style={{ position: 'relative' }}>
+                <div className="tg-menu-button" onClick={menuOpen ? closeMenu : openMenu}>Меню</div>
+                <input
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      input.trim() && (send(input), setInput(''))
+                    }
+                  }}
+                  placeholder="Сообщение…"
+                  style={{ marginLeft: 8 }}
+                />
+                <button className="tg-send" onClick={() => { if (input.trim()) { send(input); setInput('') } }}>
+                  <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+                </button>
+                {menuOpen && (
+                  <div className="tg-menu-popup">
+                    <div className="tg-menu-head">
+                      <div>Команды бота</div>
+                      <button onClick={closeMenu} style={{ padding: '6px 10px', borderRadius: 8 }}>Закрыть</button>
+                    </div>
+                    <div className="tg-menu-list">
+                      {loadingCmds && <div style={{ padding: 10, color: '#8a98a6' }}>Загрузка…</div>}
+                      {!loadingCmds && (!commands || commands.length === 0) && (
+                        <div style={{ padding: 10, color: '#8a98a6' }}>Команд не найдено</div>
+                      )}
+                      {!loadingCmds && commands?.map((c, i) => (
+                        <div key={i} className="tg-menu-item" onClick={()=>applyCommand(c.command)}>
+                          <div className="tg-menu-cmd">/{c.command.replace(/^\//,'')}</div>
+                          <div className="tg-menu-desc">{c.description || ''}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

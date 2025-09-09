@@ -87,7 +87,7 @@ html, body, #root { height: 100%; }
 .layout {
   height: 100vh;                  /* было 100% — ставим 100vh */
   display: grid;
-  grid-template-columns: minmax(480px, 720px) 1fr; /* фикс левая, адаптив правая */
+  grid-template-columns: minmax(480px, 870px) 1fr; /* фикс левая, адаптив правая */
   gap: 16px;
   padding: 16px;
   box-sizing: border-box;
@@ -133,13 +133,33 @@ html, body, #root { height: 100%; }
 
 /* тело чата со своим скроллом */
 .emu-body {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;              /* скролл будет у .emu-feed */
   border: 1px solid var(--border, #1e293b);
   border-top: 0;
   border-radius: 0 0 10px 10px;
   background: var(--pane-right, #0b1220);
 }
+
+/* Лента сообщений: всегда занимает всю высоту и показывает скролл */
+.emu-feed {
+  flex: 1 1 auto;                /* растягиваем на всю доступную высоту */
+  min-height: 0;                 /* важно для гридов/флексов */
+  overflow-y: scroll;            /* скролл всегда виден (даже если мало сообщений) */
+  display: flex;
+  flex-direction: column;        /* нормальный порядок сообщений сверху-вниз */
+  padding: 0 8px;                /* необязательный отступ по вкусу */
+}
+
+/* «Проставочный» блок, чтобы при малом количестве сообщений они прижимались к низу */
+.emu-feed__spacer {
+  flex: 1 0 auto;
+}
+
+/* Сброс внутреннего скролла, если он есть внутри телеграм-обёртки */
+.emu-feed .right-pane__scroll { overflow: visible; height: auto; }
 
 /* режим «складной» — оставляем только шапку, тело скрываем */
 .right-pane.is-collapsed .emu-body { display: none; }
