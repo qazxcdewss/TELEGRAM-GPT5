@@ -85,17 +85,21 @@
 html, body, #root { height: 100%; }
 
 .layout {
-  height: 100vh;                  /* было 100% — ставим 100vh */
+  height: 100vh;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(480px, 870px) 1fr; /* фикс левая, адаптив правая */
+  /* эмулятор слева (1fr), ассистент справа (minmax...) */
+  grid-template-columns: 1fr minmax(480px, 720px);
+  /* фиксируем порядок областей */
+  grid-template-areas: "emu pane";
   gap: 16px;
   padding: 16px;
   box-sizing: border-box;
-  min-height: 0;                  /* критично для grida */
 }
 
 /* левая колонка */
 .left-pane {
+  grid-area: pane;
   min-width: 0;
   display: grid;
   grid-template-rows: 1fr;    /* весь контент внутри, сам решит скролл */
@@ -108,6 +112,7 @@ html, body, #root { height: 100%; }
 
 /* правая колонка = шапка + тело чата */
 .right-pane {
+  grid-area: emu;
   min-width: 0;
   display: grid;
   grid-template-rows: auto 1fr;
