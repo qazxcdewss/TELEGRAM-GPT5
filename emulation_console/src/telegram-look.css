@@ -1,6 +1,7 @@
 /* контейнер "окна телеги": узкая колонка, центрируется, тёмная тема */
 .tg-window {
     height: 100%;           /* заполняем высоту колонки, не увеличивая страницу */
+    min-height: 0;          /* важно для корректного внутреннего скролла */
     overflow: hidden;       /* режем наружные переполнения */
     background: #0f1116;    /* фон вокруг окна (как у TG) */
     display: grid;
@@ -53,6 +54,7 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   height: 100%;
+  min-height: 0;            /* допускаем внутренний скролл */
 }
 .right-pane__header {
   padding: 0; /* внутренние блоки уже с отступами */
@@ -64,7 +66,7 @@
 }
 .right-pane__chat {
   overflow: hidden;
-  min-height: 0;
+  min-height: 0;            /* контейнер над лентой */
 }
 .right-pane__input {
   border-top: 1px solid #1e293b;
@@ -78,6 +80,9 @@
   height: 100%;
   background: #0e1621; /* тёмный фон TG */
 }
+
+/* 3.3 (опционально) ограничиваем ширину контента в правой ленте и центрируем */
+.right-pane__scroll > .tg-scroll-inner { max-width: 860px; margin: 0 auto; }
 
 /* коллапс правого чата: скрываем тело и инпут, шапка остаётся */
 .right-pane.is-collapsed {
