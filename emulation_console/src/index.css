@@ -13,6 +13,71 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* корневой грид на весь экран */
+.app-shell {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(380px, 480px) 1fr;
+}
+
+/* колонка-«колодец»: три ряда — header / scroll / footer */
+.col {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border-right: 1px solid var(--tg-border, #1e293b);
+}
+.col:last-child { border-right: none; }
+
+/* хедер приклеен к верху (не уезжает) */
+.col__header {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--tg-panel, #0b1220);
+  border-bottom: 1px solid var(--tg-border, #1e293b);
+}
+.col__title { font-weight: 700; }
+.col__tools { margin-left: auto; display: flex; gap: 8px; }
+
+/* основная прокручиваемая область */
+.col__scroll {
+  min-height: 0;       /* критично для гридов */
+  overflow: auto;      /* собственный скролл */
+  padding: 12px 14px;
+}
+
+/* нижняя панель ввода */
+.col__footer {
+  border-top: 1px solid var(--tg-border, #1e293b);
+  padding: 10px 12px;
+  display: grid; gap: 8px;
+  background: var(--tg-panel, #0b1220);
+}
+
+/* удобные поля ввода и кнопки — нейтрально для обоих чатов */
+.input-pill {
+  width: 100%;
+  background: #0f172a; color: #e5e7eb;
+  border: 1px solid #1e293b; border-radius: 999px;
+  padding: 10px 14px; outline: none;
+}
+.btn {
+  background: #3b82f6; color: #fff;
+  border: 0; border-radius: 999px; padding: 10px 14px;
+}
+.btn:disabled { opacity: .6; cursor: default; }
+
+/* ограничитель больших JSON/карточек, чтобы не тянули всю колонку */
+.json-box {
+  max-height: 260px;
+  overflow: auto;
+  background:#0a0f1a; color:#cbd5e1;
+  border:1px solid #1e293b; border-radius:12px; padding:10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
 a {
   font-weight: 500;
   color: #646cff;
