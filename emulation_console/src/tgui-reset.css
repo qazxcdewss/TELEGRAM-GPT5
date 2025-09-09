@@ -1,6 +1,7 @@
 /* занимаем всю высоту и используем системные токены TelegramUI */
 html, body, #root {
     height: 100%;
+    margin: 0;
   }
   
   body {
