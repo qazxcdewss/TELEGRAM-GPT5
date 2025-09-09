@@ -139,6 +139,21 @@ html, body, #root { height: 100%; }
 /* режим «складной» — оставляем только шапку, тело скрываем */
 .right-pane.is-collapsed .emu-body { display: none; }
 
+/* === фиксированная высота колонок === */
+.left-pane,
+.right-pane {
+  display: grid;
+  grid-template-rows: auto 1fr auto; /* header + scroll + footer */
+  min-height: 0;
+}
+
+/* прокручиваемая часть (списки сообщений) */
+.left-pane .col__scroll,
+.right-pane .emu-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 a {
   font-weight: 500;
   color: #646cff;
