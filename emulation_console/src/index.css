@@ -87,7 +87,7 @@ html, body, #root { height: 100%; }
 .layout {
   height: 100vh;                  /* было 100% — ставим 100vh */
   display: grid;
-  grid-template-columns: minmax(380px, 520px) 1fr; /* фикс левая, адаптив правая */
+  grid-template-columns: minmax(480px, 720px) 1fr; /* фикс левая, адаптив правая */
   gap: 16px;
   padding: 16px;
   box-sizing: border-box;
@@ -103,6 +103,7 @@ html, body, #root { height: 100%; }
   border: 1px solid var(--border, #1e293b);
   border-radius: 10px;
   overflow: hidden;
+  overflow-x: hidden;  /* прячем горизонтальную прокрутку */
 }
 
 /* правая колонка = шапка + тело чата */
