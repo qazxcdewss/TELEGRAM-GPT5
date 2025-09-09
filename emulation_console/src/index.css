@@ -161,6 +161,119 @@ html, body, #root { height: 100%; }
 /* Сброс внутреннего скролла, если он есть внутри телеграм-обёртки */
 .emu-feed .right-pane__scroll { overflow: visible; height: auto; }
 
+/* === LEFT AI CHAT THEME & LAYOUT ======================================= */
+/* палитра под "chatgpt-like" */
+:root {
+  --ai-bg: #0f1115;
+  --ai-panel: #0b0d12;
+  --ai-border: #1f2937;
+  --ai-text: #e5e7eb;
+  --ai-dim: #9ca3af;
+  --ai-accent: #2b74ff;
+  --ai-bubble: #151821;
+  --ai-bubble-user: #1d2230;
+}
+
+/* сама колонка уже есть (.left-pane) — только косметика */
+.left-pane {
+  background: var(--ai-panel);
+  border: 1px solid var(--ai-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* корень левого чата: header + feed + input (фикс.высота) */
+.ai-root {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  color: var(--ai-text);
+}
+
+/* шапка */
+.ai-header {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--ai-panel);
+  border-bottom: 1px solid var(--ai-border);
+}
+.ai-title { font-weight: 700; }
+.ai-meta  { font-size: 12px; color: var(--ai-dim); margin-left: 8px; }
+.ai-tools { margin-left: auto; display: flex; gap: 8px; }
+
+/* лента сообщений: сразу "на полный рост", скролл всегда виден */
+.ai-feed {
+  min-height: 0;
+  overflow-y: scroll;                 /* скролл виден сразу */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--ai-bg);
+}
+.ai-feed__spacer {
+  flex: 1 0 auto;                     /* прижимает сообщения к низу при малом количестве */
+}
+
+/* пузырьки */
+.ai-bubble {
+  max-width: 680px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--ai-border);
+  background: var(--ai-bubble);
+  color: var(--ai-text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.ai-row { display: flex; }
+.ai-row--user { justify-content: flex-end; }
+.ai-bubble--user { background: var(--ai-bubble-user); }
+
+/* карточки с JSON/patch не растягивают колонку */
+.ai-json {
+  max-height: 280px;
+  overflow: auto;
+  background: #0a0f1a;
+  color: #cbd5e1;
+  border: 1px solid var(--ai-border);
+  border-radius: 12px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* input-панель */
+.ai-input {
+  border-top: 1px solid var(--ai-border);
+  background: var(--ai-panel);
+  padding: 10px 12px;
+  display: grid; gap: 8px;
+}
+.ai-input__row { display: flex; gap: 8px; }
+.ai-textbox {
+  flex: 1; min-width: 0;
+  background: #0f172a;
+  border: 1px solid var(--ai-border);
+  color: var(--ai-text);
+  border-radius: 999px;
+  padding: 10px 14px;
+  outline: none;
+}
+.ai-btn {
+  background: var(--ai-accent);
+  color: #fff;
+  border: 0; border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ai-hint { font-size: 12px; color: var(--ai-dim); }
+
 /* режим «складной» — оставляем только шапку, тело скрываем */
 .right-pane.is-collapsed .emu-body { display: none; }
 

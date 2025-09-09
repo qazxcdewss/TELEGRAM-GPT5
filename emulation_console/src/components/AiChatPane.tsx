@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { nlChat, nlSpec } from '../lib/api'
 import { applyPatch, type Op } from '../lib/patch'
 import { loadState, saveState, resetState } from '../lib/storage'
-import MessageBubble from './MessageBubble'
-import ResultCard from './ResultCard'
-import TypingDots from './TypingDots'
+// old UI components no longer used in new layout
 
 type UiMsg = { id:string; role:'user'|'assistant'|'system'; text:string; ts:number;
   attachments?: Array<{kind:'patch'|'full-spec'|'draft'; data:any}> }
@@ -68,15 +66,16 @@ export default function AiChatPane() {
   function clearAll() { resetState(); setMessages([]); setDraft(null) }
 
   return (
-    <div className="ai-pane" style={{ height:'100%', minHeight:0, display:'grid', gridTemplateRows:'auto 1fr auto', background:'#0b1220', borderRight:'1px solid #1e293b' }}>
-      <div className="ai-pane__header" style={{ padding:14, borderBottom:'1px solid #1e293b', display:'flex', gap:12, alignItems:'center' }}>
-        <div style={{ fontWeight:700 }}>Spec Assistant</div>
-        <div style={{ fontSize:12, color:'#9ca3af' }}>{draft ? 'Draft: in memory (не применён)' : 'Draft: empty'}</div>
-        <div style={{ marginLeft:'auto', display:'flex', gap:10 }}>
-          <label style={{ fontSize:12, color:'#9ca3af' }}>
+    <div className="ai-root">
+      {/* header */}
+      <div className="ai-header">
+        <div className="ai-title">Spec Assistant</div>
+        <div className="ai-meta">{draft ? 'Draft: in memory (не применён)' : 'Draft: empty'}</div>
+        <div className="ai-tools">
+          <label style={{ fontSize:12, color:'var(--ai-dim)' }}>
             Mode:&nbsp;
             <select value={mode} onChange={e=>setMode(e.target.value as any)}
-                    style={{ background:'transparent', color:'#e5e7eb', border:'1px solid #1e293b', borderRadius:8, padding:'4px 8px' }}>
+                    style={{ background:'transparent', color:'var(--ai-text)', border:'1px solid var(--ai-border)', borderRadius:8, padding:'4px 8px' }}>
               <option value="patch">Patch</option>
               <option value="full">Full</option>
             </select>
@@ -85,38 +84,48 @@ export default function AiChatPane() {
         </div>
       </div>
 
-      <div className="ai-pane__scroll" ref={scrollRef} style={{ overflow:'auto', padding:14, minHeight:0 }}>
-        <div style={{ display:'grid', gap:10 }}>
-          {messages.map(m => (
-            <div key={m.id} style={{ display:'grid', gap:8 }}>
-              <MessageBubble role={m.role}>{m.text}</MessageBubble>
-              {m.attachments?.map((a, i) => (
-                <ResultCard
-                  key={i}
-                  kind={a.kind}
-                  data={a.data}
-                  onApplyPatch={a.kind==='patch' ? ()=>applyPatchLocally(a.data as Op[]) : undefined}
-                  onUseDraft={a.kind!=='patch' ? (v)=>useAsDraft(v) : undefined}
-                />
-              ))}
+      {/* feed */}
+      <div className="ai-feed" ref={scrollRef}>
+        <div className="ai-feed__spacer" />
+        {messages.map(m => (
+          <div key={m.id} className={`ai-row ${m.role==='user' ? 'ai-row--user' : ''}`}>
+            <div className={`ai-bubble ${m.role==='user' ? 'ai-bubble--user' : ''}`}>
+              {m.text}
             </div>
-          ))}
-          {loading && <MessageBubble role="assistant"><TypingDots/></MessageBubble>}
-        </div>
+          </div>
+        ))}
+
+        {messages.map(m => (
+          m.attachments?.map((a, i) => (
+            <div key={m.id + ':' + i} className="ai-row">
+              <div className="ai-bubble" style={{ width:'100%' }}>
+                <div style={{ fontWeight:600, marginBottom:8 }}>
+                  {a.kind === 'patch' ? 'Patch (RFC6902)' : a.kind === 'full-spec' ? 'Сгенерированная спека' : 'Черновик (422)'}
+                </div>
+                <pre className="ai-json">{JSON.stringify(a.data, null, 2)}</pre>
+                <div style={{ display:'flex', gap:8, marginTop:8 }}>
+                  {a.kind === 'patch' && <button className="ai-btn" onClick={()=>applyPatchLocally(a.data as Op[])}>Apply patch locally</button>}
+                  {a.kind !== 'patch' && <button className="ai-btn" onClick={()=>useAsDraft(a.data)}>Use as draft</button>}
+                </div>
+              </div>
+            </div>
+          ))
+        ))}
       </div>
 
-      <div className="ai-pane__input" style={{ padding:12, borderTop:'1px solid #1e293b', display:'grid', gap:8 }}>
-        <div style={{ display:'flex', gap:8 }}>
+      {/* input */}
+      <div className="ai-input">
+        <div className="ai-input__row">
           <input
+            className="ai-textbox"
             placeholder="Опиши идею бота, команды, сценарии…"
             value={input}
             onChange={e=>setInput(e.target.value)}
             onKeyDown={e=>{ if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            style={{ flex:1, background:'#0f172a', border:'1px solid #1e293b', color:'#e5e7eb', borderRadius:999, padding:'10px 14px', outline:'none' }}
           />
           <button className="ai-btn" onClick={send} disabled={!input.trim() || loading}>Send</button>
         </div>
-        <div style={{ fontSize:12, color:'#9ca3af' }}>
+        <div className="ai-hint">
           Сообщения сохраняются локально • Черновик спеки хранится в памяти • Применение (Upload→Generate→Deploy) добавим позже
         </div>
       </div>
