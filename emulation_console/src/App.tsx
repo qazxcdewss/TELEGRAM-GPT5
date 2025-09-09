@@ -1,72 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppRoot } from '@telegram-apps/telegram-ui'
 import AiChatPane from './components/AiChatPane'
+import Split from './components/Split'
 import { API_BASE, getActiveBotId, setActiveBotId as setActiveBotIdGlobal } from './lib/api'
 import { loadState } from './lib/storage'
 
-const BOT_ID0  = (window as any).BOT_ID    || (import.meta as any).env?.VITE_BOT_ID    || 'my-bot-1'
+const BOT_ID0  = (window as any).BOT_ID || (import.meta as any).env?.VITE_BOT_ID || 'my-bot-1'
 
 type Msg = { id: string; who: 'user'|'bot'|'sys'; text: string; ts: number; buttons?: Array<Array<{ text: string; data?: string }>> }
 const uid = () => Math.random().toString(36).slice(2)
 const fmtDateChip = (ts: number) => new Date(ts).toLocaleDateString(undefined, { day: '2-digit', month: 'long' })
 
 export default function App() {
-  const [chatOpen, setChatOpen] = useState(true)
   const [activeBotId, setActiveBotId] = useState<string>(() => localStorage.getItem('activeBotId') || BOT_ID0)
   const [input, setInput] = useState('/start')
   const [msgs, setMsgs] = useState<Msg[]>([
     { id: uid(), who: 'sys', text: 'Эмулятор готов. Напишите сообщение и нажмите Send.', ts: Date.now() }
   ])
 
-  // Эмуляция режимов и движка (для /emu/wh)
+  // --- эмуляция для /emu/wh ---
   type EmuMode = 'auto'|'spec'|'active'|'rev'
   type Engine = 'local'|'gpt5'
   const [engine, setEngine] = useState<Engine>('local')
   const [mode, setMode] = useState<EmuMode>('auto')
   const [revHash, setRevHash] = useState('')
 
-  // --- Меню команд ---
+  // --- меню команд (опц.) ---
   type BotCommand = { command: string; description?: string }
   const [menuOpen, setMenuOpen] = useState(false)
   const [commands, setCommands] = useState<BotCommand[] | null>(null)
   const [loadingCmds, setLoadingCmds] = useState(false)
-
-  const tryFetchJson = async (url: string) => {
-    try {
-      const r = await fetch(url)
-      if (!r.ok) return null
-      return await r.json()
-    } catch { return null }
-  }
-
-  async function loadCommandsLazy() {
-    if (commands || loadingCmds) return
-    setLoadingCmds(true)
-
-    let data = await tryFetchJson(`${API_BASE}/api/bots/${encodeURIComponent(activeBotId)}/commands`)
-    if (!data) data = await tryFetchJson(`${API_BASE}/commands?botId=${encodeURIComponent(activeBotId)}`)
-    if (!data) {
-      const specLast = await tryFetchJson(`${API_BASE}/spec/latest?botId=${encodeURIComponent(activeBotId)}`)
-      const fromSpec = (specLast as any)?.commands || (specLast as any)?.meta?.commands
-      if (Array.isArray(fromSpec)) data = fromSpec
-    }
-
-    if (Array.isArray(data)) setCommands(data as BotCommand[])
-    else setCommands([
-      { command: 'start', description: 'Start the bot' },
-      { command: 'help',  description: 'Get help' },
-      { command: 'menu',  description: 'Open main menu' },
-    ])
-    setLoadingCmds(false)
-  }
-
-  function openMenu()  { setMenuOpen(true);  void loadCommandsLazy() }
-  function closeMenu() { setMenuOpen(false) }
-  function applyCommand(cmd: string) {
-    const withSlash = cmd.startsWith('/') ? cmd : `/${cmd}`
-    setInput(withSlash)
-    setMenuOpen(false)
-  }
 
   useEffect(() => { localStorage.setItem('activeBotId', activeBotId) }, [activeBotId])
 
@@ -74,7 +37,26 @@ export default function App() {
   useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [msgs.length])
   function push(m: Msg) { setMsgs(xs => [...xs, m]) }
 
-  // parseBotReply больше не используется (эмуляция /emu/wh возвращает уже готовый массив сообщений)
+  async function tryFetchJson(url: string) {
+    try { const r = await fetch(url); return r.ok ? await r.json() : null } catch { return null }
+  }
+  async function loadCommandsLazy() {
+    if (commands || loadingCmds) return
+    setLoadingCmds(true)
+    let data = await tryFetchJson(`${API_BASE}/api/bots/${encodeURIComponent(activeBotId)}/commands`)
+    if (!data) data = await tryFetchJson(`${API_BASE}/commands?botId=${encodeURIComponent(activeBotId)}`)
+    if (!data) {
+      const specLast = await tryFetchJson(`${API_BASE}/spec/latest?botId=${encodeURIComponent(activeBotId)}`)
+      const fromSpec = (specLast as any)?.commands || (specLast as any)?.meta?.commands
+      if (Array.isArray(fromSpec)) data = fromSpec
+    }
+    if (Array.isArray(data)) setCommands(data as BotCommand[])
+    else setCommands([{ command:'start' }, { command:'help' }, { command:'menu' }])
+    setLoadingCmds(false)
+  }
+  function openMenu()  { setMenuOpen(true);  void loadCommandsLazy() }
+  function closeMenu() { setMenuOpen(false) }
+  function applyCommand(cmd: string) { const s = cmd.startsWith('/') ? cmd : `/${cmd}`; setInput(s); setMenuOpen(false) }
 
   async function send(text: string) {
     const trimmed = text.trim()
@@ -137,157 +119,146 @@ export default function App() {
   }, [msgs])
 
   return (
-    <AppRoot appearance="light">{/* поменяй на "dark", если хочешь тёмную */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(420px, 60%) minmax(540px, 1fr)',
-        height: '100vh',
-        overflow: 'hidden'
-      }}>
-        {/* LEFT: AI Chat Pane */}
-        <AiChatPane />
+    <AppRoot appearance="light">
+      <Split
+        left={<AiChatPane />}
+        right={
+          <div className="tg-window">
+            <div className="tg-chat-frame">
+              <div className="right-pane">
+                {/* header */}
+                <div className="right-pane__header">
+                  <div className="tg-header">
+                    <div className="tg-avatar" />
+                    <div style={{lineHeight: 1.2}}>
+                      <div className="tg-title">Bot Emulator</div>
+                      <div className="tg-sub">bot • {activeBotId}</div>
+                    </div>
+                    <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
+                      <span className="tg-sub">Emu:</span>
+                      <select value={mode} onChange={e=>setMode(e.target.value as EmuMode)} style={{ padding:'6px 8px', borderRadius:8 }}>
+                        <option value="auto">Auto (Draft→Active)</option>
+                        <option value="spec">Draft (by spec → bot.js)</option>
+                        <option value="active">Active (current)</option>
+                        <option value="rev">Rev (revHash)</option>
+                      </select>
 
-        {/* ===== RIGHT: Telegram-like window ===== */}
-        <div className="tg-window">
-          <div className="tg-chat-frame">
-            {/* ⬇︎ collapsible right pane */}
-            <div className={`right-pane ${chatOpen ? '' : 'is-collapsed'}`}>
-              <div className="right-pane__header">
-                <div className="tg-header">
-                  <div className="tg-avatar" />
-                  <div style={{lineHeight: 1.2}}>
-                    <div className="tg-title">Bot Emulator</div>
-                    <div className="tg-sub">bot • {activeBotId}</div>
-                  </div>
-                  {/* ——— control bar ——— */}
-                  <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
-                    <span className="tg-sub">Emu:</span>
-                    <select value={mode} onChange={e=>setMode(e.target.value as EmuMode)} style={{ padding:'6px 8px', borderRadius:8 }}>
-                      <option value="auto">Auto (Draft→Active)</option>
-                      <option value="spec">Draft (by spec → bot.js)</option>
-                      <option value="active">Active (current)</option>
-                      <option value="rev">Rev (revHash)</option>
-                    </select>
+                      <span className="tg-sub">Engine:</span>
+                      <select value={engine} onChange={e=>setEngine(e.target.value as Engine)} style={{ padding:'6px 8px', borderRadius:8 }}>
+                        <option value="local">local</option>
+                        <option value="gpt5">gpt5</option>
+                      </select>
 
-                    <span className="tg-sub">Engine:</span>
-                    <select value={engine} onChange={e=>setEngine(e.target.value as Engine)} style={{ padding:'6px 8px', borderRadius:8 }}>
-                      <option value="local">local</option>
-                      <option value="gpt5">gpt5</option>
-                    </select>
+                      {mode==='rev' && (
+                        <input value={revHash} onChange={e=>setRevHash(e.target.value)} placeholder="revHash" style={{minWidth:260}} />
+                      )}
 
-                    {mode==='rev' && (
-                      <input value={revHash} onChange={e=>setRevHash(e.target.value)} placeholder="revHash" style={{minWidth:260}} />
-                    )}
-
-                    <span className="tg-sub">bot id</span>
-                    <input
-                      value={activeBotId}
-                      onChange={e=>{ setActiveBotId(e.target.value); setActiveBotIdGlobal(e.target.value) }}
-                      style={{ padding:'6px 8px', minWidth:200, borderRadius:8,
-                               border:'1px solid rgba(255,255,255,.08)',
-                               background:'#0f1b26', color:'#e6e6e6' }}
-                    />
-
-                    {/* toggle */}
-                    <button
-                      onClick={()=>setChatOpen(v=>!v)}
-                      style={{ marginLeft:12, padding:'6px 10px', borderRadius:8 }}
-                      title={chatOpen ? 'Свернуть чат' : 'Развернуть чат'}
-                    >
-                      {chatOpen ? '▾ Свернуть' : '▸ Развернуть'}
-                    </button>
+                      <span className="tg-sub">bot id</span>
+                      <input
+                        value={activeBotId}
+                        onChange={e=>{ setActiveBotId(e.target.value); setActiveBotIdGlobal(e.target.value) }}
+                        style={{ padding:'6px 8px', minWidth:200, borderRadius:8,
+                                 border:'1px solid rgba(255,255,255,.08)',
+                                 background:'#0f1b26', color:'#e6e6e6' }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="right-pane__chat">
-                <div className="right-pane__scroll">
-                  {withDateChips.map(item =>
-                    'chip' in item ? (
-                      <div key={item.key} className="tg-date"><span>{item.chip}</span></div>
-                    ) : (
-                      <div key={item.id} className={`tg-row ${item.who==='user' ? 'right' : ''}`}>
-                        <div className={`tg-bubble ${item.who==='user' ? 'tg-outgoing' : 'tg-incoming'}`}>
-                          <span style={{ whiteSpace: 'pre-wrap' }}>{item.text}</span>
-                          <span className="tg-metaRow">
-                            <span className="tg-time">
-                              {new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            {item.who === 'user' && (
-                              <span className="tg-checks double">
-                                <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
-                                <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
+                {/* chat scroll */}
+                <div className="right-pane__chat">
+                  <div className="right-pane__scroll">
+                    <div className="tg-scroll-inner">
+                      {withDateChips.map(item =>
+                        'chip' in item ? (
+                          <div key={item.key} className="tg-date"><span>{item.chip}</span></div>
+                        ) : (
+                          <div key={item.id} className={`tg-row ${item.who==='user' ? 'right' : ''}`}>
+                            <div className={`tg-bubble ${item.who==='user' ? 'tg-outgoing' : 'tg-incoming'}`}>
+                              <span style={{ whiteSpace: 'pre-wrap' }}>{item.text}</span>
+                              <span className="tg-metaRow">
+                                <span className="tg-time">
+                                  {new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                {item.who === 'user' && (
+                                  <span className="tg-checks double">
+                                    <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
+                                    <svg viewBox="0 0 24 24"><path d="M0 12l2-2 6 6L22 2l2 2L8 20z"/></svg>
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
 
-                          {item.buttons?.length ? (
-                            <div className="tg-ik">
-                              {item.buttons.map((row, ri) => (
-                                <div className="tg-ik-row" key={ri}>
-                                  {row.map((b, bi) => (
-                                    <button key={bi} onClick={()=>onButtonClick(b)}>{b.text}</button>
+                              {item.buttons?.length ? (
+                                <div className="tg-ik">
+                                  {item.buttons.map((row, ri) => (
+                                    <div className="tg-ik-row" key={ri}>
+                                      {row.map((b, bi) => (
+                                        <button key={bi} onClick={()=>onButtonClick(b)}>{b.text}</button>
+                                      ))}
+                                    </div>
                                   ))}
                                 </div>
-                              ))}
+                              ) : null}
                             </div>
-                          ) : null}
+                          </div>
+                        )
+                      )}
+                      <div ref={endRef} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* input */}
+                <div className="right-pane__input">
+                  <div className="tg-input" style={{ position: 'relative' }}>
+                    <div className="tg-menu-button" onClick={menuOpen ? closeMenu : openMenu}>
+                      Меню
+                    </div>
+                    <input
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          input.trim() && (send(input), setInput(''))
+                        }
+                      }}
+                      placeholder="Сообщение…"
+                      style={{ marginLeft: 8 }}
+                    />
+                    <button className="tg-send" onClick={() => { if (input.trim()) { send(input); setInput('') } }}>
+                      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+                    </button>
+
+                    {menuOpen && (
+                      <div className="tg-menu-popup">
+                        <div className="tg-menu-head">
+                          <div>Команды бота</div>
+                          <button onClick={closeMenu} style={{ padding: '6px 10px', borderRadius: 8 }}>Закрыть</button>
+                        </div>
+                        <div className="tg-menu-list">
+                          {loadingCmds && <div style={{ padding: 10, color: '#8a98a6' }}>Загрузка…</div>}
+                          {!loadingCmds && (!commands || commands.length === 0) && (
+                            <div style={{ padding: 10, color: '#8a98a6' }}>Команд не найдено</div>
+                          )}
+                          {!loadingCmds && commands?.map((c, i) => (
+                            <div key={i} className="tg-menu-item" onClick={()=>applyCommand(c.command)}>
+                              <div className="tg-menu-cmd">/{c.command.replace(/^\//,'')}</div>
+                              <div className="tg-menu-desc">{c.description || ''}</div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    )
-                  )}
-                  <div ref={endRef} />
-                </div>
-              </div>
+                    )}
 
-              <div className="right-pane__input">
-                <div className="tg-input" style={{ position: 'relative' }}>
-                  <div className="tg-menu-button" onClick={menuOpen ? closeMenu : openMenu}>
-                    Меню
                   </div>
-                  <input
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        input.trim() && (send(input), setInput(''))
-                      }
-                    }}
-                    placeholder="Сообщение…"
-                    style={{ marginLeft: 8 }}
-                  />
-                  <button className="tg-send" onClick={() => { if (input.trim()) { send(input); setInput('') } }}>
-                    <svg viewBox="0 0 24 24">
-                      <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
-                    </svg>
-                  </button>
-                  {menuOpen && (
-                    <div className="tg-menu-popup">
-                      <div className="tg-menu-head">
-                        <div>Команды бота</div>
-                        <button onClick={closeMenu} style={{ padding: '6px 10px', borderRadius: 8 }}>Закрыть</button>
-                      </div>
-                      <div className="tg-menu-list">
-                        {loadingCmds && <div style={{ padding: 10, color: '#8a98a6' }}>Загрузка…</div>}
-                        {!loadingCmds && (!commands || commands.length === 0) && (
-                          <div style={{ padding: 10, color: '#8a98a6' }}>Команд не найдено</div>
-                        )}
-                        {!loadingCmds && commands?.map((c, i) => (
-                          <div key={i} className="tg-menu-item" onClick={()=>applyCommand(c.command)}>
-                            <div className="tg-menu-cmd">/{c.command.replace(/^\//,'')}</div>
-                            <div className="tg-menu-desc">{c.description || ''}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        }
+        storageKey="emul.split.w"
+      />
     </AppRoot>
   )
 }

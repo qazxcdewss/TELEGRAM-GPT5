@@ -1,0 +1,43 @@
+:root {
+  --ui-bg: #0b1220;
+  --ui-panel: #0f172a;
+  --ui-text: #e5e7eb;
+  --ui-dim: #94a3b8;
+  --ui-border: #1e293b;
+  --ui-accent: #1c93e3;
+  --ui-green: #22c55e;
+  --ui-red: #ef4444;
+  --ui-code: #0a0f1a;
+  --ui-radius: 14px;
+}
+.ui-row { display:flex; align-items:center; gap:8px }
+.ui-badge { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--ui-border); color:var(--ui-dim) }
+.ui-kbd { font-size:11px; border:1px solid var(--ui-border); padding:1px 6px; border-radius:6px; color:var(--ui-dim); background:#0c1322 }
+.ui-btn {
+  border:1px solid var(--ui-border); border-radius:10px; padding:8px 12px;
+  color:var(--ui-text); background:var(--ui-panel); cursor:pointer;
+}
+.ui-btn:hover { filter:brightness(1.05) }
+.ui-input {
+  border:1px solid var(--ui-border); border-radius:999px; background:#0f172a; color:var(--ui-text);
+  padding:10px 14px; outline:none; flex:1; min-height:40px;
+}
+.ui-area {
+  border:1px solid var(--ui-border); border-radius:12px; background:var(--ui-panel); color:var(--ui-text);
+  padding:10px; outline:none; width:100%; resize:vertical;
+}
+.ui-code {
+  background:var(--ui-code); border:1px solid var(--ui-border); border-radius:12px;
+  padding:10px; font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#cbd5e1;
+  overflow:auto; white-space:pre-wrap;
+}
+.tg-wrap { display:flex; flex-direction:column; height:100% }
+.tg-head { padding:8px 12px; border-bottom:1px solid var(--ui-border); background:var(--ui-panel) }
+.tg-body { flex:1; overflow:auto; background:var(--tgui--bg_color) }
+.tg-input { border-top:1px solid var(--ui-border); padding:10px; background:var(--ui-panel) }
+.tg-bubble { max-width:74%; padding:8px 12px; border-radius:16px; border:1px solid var(--ui-border); color:var(--ui-text) }
+.tg-bot   { background:var(--tgui--surface_primary); border-bottom-left-radius:4px }
+.tg-user  { background:#18324b; border-bottom-right-radius:4px; margin-left:auto }
+.tg-meta  { margin-top:2px; font-size:11px; color:var(--ui-dim) }
+
+
