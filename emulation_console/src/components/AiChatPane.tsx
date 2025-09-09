@@ -68,7 +68,7 @@ export default function AiChatPane() {
   function clearAll() { resetState(); setMessages([]); setDraft(null) }
 
   return (
-    <div className="ai-pane" style={{ height:'100%', display:'grid', gridTemplateRows:'auto 1fr auto', background:'#0b1220', borderRight:'1px solid #1e293b', overflow:'hidden' }}>
+    <div className="ai-pane" style={{ height:'100%', minHeight:0, display:'grid', gridTemplateRows:'auto 1fr auto', background:'#0b1220', borderRight:'1px solid #1e293b' }}>
       <div className="ai-pane__header" style={{ padding:14, borderBottom:'1px solid #1e293b', display:'flex', gap:12, alignItems:'center' }}>
         <div style={{ fontWeight:700 }}>Spec Assistant</div>
         <div style={{ fontSize:12, color:'#9ca3af' }}>{draft ? 'Draft: in memory (не применён)' : 'Draft: empty'}</div>
