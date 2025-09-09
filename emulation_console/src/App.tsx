@@ -11,6 +11,7 @@ const uid = () => Math.random().toString(36).slice(2)
 const fmtDateChip = (ts: number) => new Date(ts).toLocaleDateString(undefined, { day: '2-digit', month: 'long' })
 
 export default function App() {
+  const [chatOpen, setChatOpen] = useState(true)
   const [activeBotId, setActiveBotId] = useState<string>(() => localStorage.getItem('activeBotId') || BOT_ID0)
   const [input, setInput] = useState('/start')
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -137,14 +138,20 @@ export default function App() {
 
   return (
     <AppRoot appearance="light">{/* поменяй на "dark", если хочешь тёмную */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px, 480px) 1fr', height: '100vh', overflow: 'hidden' }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(420px, 60%) minmax(540px, 1fr)',
+        height: '100vh',
+        overflow: 'hidden'
+      }}>
         {/* LEFT: AI Chat Pane */}
         <AiChatPane />
 
         {/* ===== RIGHT: Telegram-like window ===== */}
         <div className="tg-window">
           <div className="tg-chat-frame">
-            <div className="right-pane">
+            {/* ⬇︎ collapsible right pane */}
+            <div className={`right-pane ${chatOpen ? '' : 'is-collapsed'}`}>
               <div className="right-pane__header">
                 <div className="tg-header">
                   <div className="tg-avatar" />
@@ -152,33 +159,44 @@ export default function App() {
                     <div className="tg-title">Bot Emulator</div>
                     <div className="tg-sub">bot • {activeBotId}</div>
                   </div>
-                  <div style={{marginLeft: 'auto', display:'flex', gap:8, alignItems:'center'}}>
-                    <span className="tg-sub">bot id</span>
-                    <input value={activeBotId} onChange={e=>{ setActiveBotId(e.target.value); setActiveBotIdGlobal(e.target.value) }}
-                           style={{padding:'6px 8px', minWidth:200, borderRadius:8,
-                                   border:'1px solid rgba(255,255,255,.08)',
-                                   background:'#0f1b26', color:'#e6e6e6'}} />
-                  </div>
-                </div>
-
-                <div style={{display:'flex', gap:8, alignItems:'center', padding:'8px 12px'}}>
-                  <label>Emu:&nbsp;
-                    <select value={mode} onChange={e=>setMode(e.target.value as EmuMode)}>
+                  {/* ——— control bar ——— */}
+                  <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
+                    <span className="tg-sub">Emu:</span>
+                    <select value={mode} onChange={e=>setMode(e.target.value as EmuMode)} style={{ padding:'6px 8px', borderRadius:8 }}>
                       <option value="auto">Auto (Draft→Active)</option>
                       <option value="spec">Draft (by spec → bot.js)</option>
                       <option value="active">Active (current)</option>
                       <option value="rev">Rev (revHash)</option>
                     </select>
-                  </label>
-                  <label>Engine:&nbsp;
-                    <select value={engine} onChange={e=>setEngine(e.target.value as Engine)}>
+
+                    <span className="tg-sub">Engine:</span>
+                    <select value={engine} onChange={e=>setEngine(e.target.value as Engine)} style={{ padding:'6px 8px', borderRadius:8 }}>
                       <option value="local">local</option>
                       <option value="gpt5">gpt5</option>
                     </select>
-                  </label>
-                  {mode==='rev' && (
-                    <input value={revHash} onChange={e=>setRevHash(e.target.value)} placeholder="revHash" style={{minWidth:260}} />
-                  )}
+
+                    {mode==='rev' && (
+                      <input value={revHash} onChange={e=>setRevHash(e.target.value)} placeholder="revHash" style={{minWidth:260}} />
+                    )}
+
+                    <span className="tg-sub">bot id</span>
+                    <input
+                      value={activeBotId}
+                      onChange={e=>{ setActiveBotId(e.target.value); setActiveBotIdGlobal(e.target.value) }}
+                      style={{ padding:'6px 8px', minWidth:200, borderRadius:8,
+                               border:'1px solid rgba(255,255,255,.08)',
+                               background:'#0f1b26', color:'#e6e6e6' }}
+                    />
+
+                    {/* toggle */}
+                    <button
+                      onClick={()=>setChatOpen(v=>!v)}
+                      style={{ marginLeft:12, padding:'6px 10px', borderRadius:8 }}
+                      title={chatOpen ? 'Свернуть чат' : 'Развернуть чат'}
+                    >
+                      {chatOpen ? '▾ Свернуть' : '▸ Развернуть'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
