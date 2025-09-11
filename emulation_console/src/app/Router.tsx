@@ -3,6 +3,7 @@ import Landing from '../routes/Landing'
 import Auth from '../routes/Auth'
 import Bots from '../routes/Bots'
 import DevLayer from '../dev/DevLayer'
+import DeployLayer from '../deploy/DeployLayer'
 
 export default function AppRouter() {
   return (
@@ -14,6 +15,7 @@ export default function AppRouter() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <DevLayer />
+      <DeployLayer />
     </>
   )
 }

@@ -43,7 +43,12 @@ export default function Bots() {
               <div style={{ fontSize:12, opacity:.7, margin:'6px 0 10px' }}>status: {b.status || 'unknown'} · updated: {b.updatedAt || '-'}</div>
               <div style={{ display:'flex', gap:8 }}>
                 <button onClick={()=>nav(`/bots?dev=1&panel=both&bot=${encodeURIComponent(b.botId)}`)} style={cardBtn}>Dev-режим</button>
-                <button onClick={()=>nav(`/bots?bot=${encodeURIComponent(b.botId)}&panel=emu`)} style={cardBtnAlt}>Открыть эмулятор</button>
+                <button
+                  onClick={()=>nav(`/bots?deploy=1&bot=${encodeURIComponent(b.botId)}`)}
+                  style={cardBtnAlt}
+                >
+                  Деплой в Telegram
+                </button>
               </div>
             </div>
           ))}
