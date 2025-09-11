@@ -22,14 +22,16 @@ function guessFromHeaders(req: any): string|undefined {
 export default async function botsRoutes(fastify: FastifyInstance) {
   const getOwner = () => process.env.DEV_OWNER_ID || 'dev-user-1'
 
+  // Создать бота (token опционален → draft)
   fastify.post('/api/bots', async (req, reply) => {
     try {
       const { botId, title, token } = (req.body || {}) as any
-      if (!botId || !title || !token) {
-        return reply.code(400).send({ ok: false, error: 'botId/title/token required' })
+      if (!botId || !title) {
+        return reply.code(400).send({ ok: false, error: 'botId/title required' })
       }
-      const row = await createOrUpdateBot({ botId, title, token, ownerUserId: getOwner() })
-      return reply.send({ ok: true, bot: { botId: row.bot_id, title: row.title, secret_token: row.secret_token } })
+      const row = await createOrUpdateBot({ botId, title, token: token || null, ownerUserId: getOwner() })
+      const status = row.tg_username ? 'connected' : (row.token_encrypted ? 'has-token' : 'draft')
+      return reply.send({ ok: true, bot: { botId: row.bot_id, title: row.title, username: row.tg_username || null, status } })
     } catch (e: any) {
       req.log.error(e, 'create bot error')
       return reply.code(500).send({ ok: false, error: e?.message || 'internal' })
@@ -41,6 +43,20 @@ export default async function botsRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true, bots: rows.map(r => ({
       botId: r.bot_id, title: r.title, username: r.tg_username, createdAt: r.created_at, updatedAt: r.updated_at
     })) })
+  })
+
+  // Добавить/обновить токен позже
+  fastify.post('/api/bots/:botId/token', async (req, reply) => {
+    try {
+      const botId = String((req.params as any).botId || '')
+      const { token } = (req.body || {}) as any
+      if (!botId || !token) return reply.code(400).send({ ok:false, error:'botId/token required' })
+      await createOrUpdateBot({ botId, title: undefined, token, ownerUserId: getOwner() })
+      return reply.send({ ok:true })
+    } catch (e:any) {
+      req.log.error(e, 'set token error')
+      return reply.code(500).send({ ok:false, error:e?.message || 'internal' })
+    }
   })
 
   fastify.post('/api/bots/:botId/validate', async (req, reply) => {

@@ -122,6 +122,12 @@
     │   │   │   └── /
     │   │   │       └── :botId
     │   │   │           └── /
+    │   │   │               ├── token (POST)
+    │   │   │               │   • (errorHandler) "defaultErrorHandler()"
+    │   │   │               │   • (logLevel) ""
+    │   │   │               │   • (onRequest) ["handleCors()"]
+    │   │   │               │   • (onSend) ["anonymous()","anonymous()"]
+    │   │   │               │   • (onResponse) ["anonymous()"]
     │   │   │               ├── validate (POST)
     │   │   │               │   • (errorHandler) "defaultErrorHandler()"
     │   │   │               │   • (logLevel) ""
