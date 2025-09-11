@@ -115,6 +115,57 @@ function normalizeSpecShapeTop(draft: any): any {
   return out
 }
 
+// --- Жёсткая нормализация под AJV: убираем лишние поля и приводим форматы
+function sanitizeSpecForAjv(input: any, botId: string) {
+  const out: any = { meta: { botId: String(botId || input?.meta?.botId || '') } }
+
+  // limits (optional)
+  if (input?.limits && typeof input.limits === 'object') {
+    const { botRps, chatRps } = input.limits
+    const lim: any = {}
+    if (Number.isInteger(botRps) && botRps >= 1) lim.botRps = botRps
+    if (Number.isInteger(chatRps) && chatRps >= 1) lim.chatRps = chatRps
+    if (Object.keys(lim).length) out.limits = lim
+  }
+
+  // commands → only {cmd, flow}
+  const cmds = Array.isArray(input?.commands) ? input.commands : []
+  out.commands = cmds.map((c: any, i: number) => {
+    let cmd = String(c?.cmd ?? c?.name ?? '').trim()
+    cmd = cmd.replace(/^\/+/, '').replace(/@.+$/, '')
+    const flow = String(c?.flow ?? c?.name ?? `flow_${i}`).trim()
+    return { cmd, flow }
+  }).filter((c: any) => c.cmd && c.flow)
+
+  // flows → keep only supported steps/fields
+  const flows = Array.isArray(input?.flows) ? input.flows : []
+  out.flows = flows.map((f: any, i: number) => {
+    const name = String(f?.name ?? `flow_${i}`).trim()
+    const stepsIn = Array.isArray(f?.steps) ? f.steps : []
+    const steps = stepsIn.map((s: any) => {
+      if (!s || typeof s !== 'object') return null
+      if ('sendMessage' in s) {
+        const text = String(s.sendMessage?.text ?? s.sendMessage?.message ?? s.text ?? '')
+        return { type: 'sendMessage', text }
+      }
+      if (s.type === 'sendMessage') {
+        return { type: 'sendMessage', text: String(s.text ?? '') }
+      }
+      if (s.type === 'goto') {
+        return { type: 'goto', to: String(s.to ?? '') }
+      }
+      if (s.type === 'http') {
+        const method = (s.method || 'POST').toUpperCase() === 'GET' ? 'GET' : 'POST'
+        return { type: 'http', url: String(s.url || ''), method, body: s.body ?? null }
+      }
+      return null
+    }).filter(Boolean)
+    return { name, steps }
+  })
+
+  return out
+}
+
 async function callGpt(baseUrl: string, apiKey: string, model: string, messages: any[], maxTokens = 1800) {
   const r = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -594,7 +645,11 @@ async function main() {
       spec = { ...(spec || {}), meta: { ...(spec?.meta || {}), botId: headerBotId } }
     }
 
-    const valid = validateBotSpec(spec)
+    // Грубая форма → жёсткий санитайзер → AJV
+    const prelim = normalizeSpecShapeTop(spec)
+    const botId = (prelim?.meta?.botId as string) || headerBotId || ''
+    const forAjv = sanitizeSpecForAjv(prelim, botId)
+    const valid = validateBotSpec(forAjv)
     if (!valid) {
       const details = (validateBotSpec.errors || []).map((e: any) => ({
         path: e.instancePath || e.schemaPath,
@@ -603,9 +658,10 @@ async function main() {
       }))
       return reply.code(400).send({ error: { code: 'SPEC_INVALID_SCHEMA', message: 'Validation failed', details } })
     }
-    const botId = (spec as any)?.meta?.botId as string
+    const finalSpec = forAjv
+    const botId = finalSpec.meta.botId as string
 
-    const text = canonical(spec)
+    const text = canonical(finalSpec)
     const specSha256 = sha256(text)
 
     // write to PG
@@ -619,7 +675,7 @@ async function main() {
     try {
       await ensureBucket()
       const s3Key = `bots/${botId}/${specSha256}.json`
-      await putS3(s3Key, JSON.stringify(spec))
+      await putS3(s3Key, JSON.stringify(finalSpec))
     } catch (e) {
       req.log.error(e, 'failed to persist spec.json to S3')
       // not failing the whole request; PG insert already succeeded
@@ -751,6 +807,7 @@ async function main() {
       const body = (req.body || {}) as any
       const text: string = String(body.text || '').trim()
       const currentSpec: any = body.currentSpec || null
+      const headerBotId = (req.headers['x-bot-id'] as string | undefined)?.trim() || ''
       if (!text) return reply.code(400).send({ error: { code: 'TEXT_REQUIRED' } })
 
       // 1) System prompt
@@ -869,14 +926,16 @@ async function main() {
         return out
       }
       targetSpec = normalizeSpecShape(targetSpec)
+      // финальная жёсткая нормализация под AJV и форс botId
+      const forAjv = sanitizeSpecForAjv(targetSpec, headerBotId)
       // 5) AJV validation of target spec + canonical
-      const ok = validateBotSpec(targetSpec)
+      const ok = validateBotSpec(forAjv)
       if (!ok) {
         warnings.push('AJV_FAILED')
-        return reply.code(422).send({ error:{ code:'SPEC_INVALID', details: validateBotSpec.errors }, draft: targetSpec })
+        return reply.code(422).send({ error:{ code:'SPEC_INVALID', details: validateBotSpec.errors }, draft: forAjv })
       }
-      const canonicalText = canonicalize(targetSpec)
-      return reply.send({ patch: patch || undefined, targetSpec, canonical: canonicalText, warnings })
+      const canonicalText = canonicalize(forAjv)
+      return reply.send({ patch: patch || undefined, targetSpec: forAjv, canonical: canonicalText, warnings })
     } catch (e:any) {
       return reply.code(500).send({ error:{ code:'NL_SPEC_ERROR', message: e?.message || String(e) } })
     }
