@@ -52,21 +52,24 @@ export async function createBot(p: {
 }
 
 export async function createOrUpdateBot(p: {
-  botId: string; title: string; token: string; ownerUserId: string;
+  botId: string
+  title?: string
+  token?: string | null
+  ownerUserId: string
 }): Promise<BotRow> {
-  const enc = encryptToken(p.token)
+  const enc: Buffer | null = p.token ? encryptToken(p.token) : null
   const secret = crypto.randomUUID()
   const q = `
     INSERT INTO bots (bot_id, title, tg_token_enc, secret_token, owner_user_id, is_active)
-    VALUES ($1,$2,$3,$4,$5,true)
+    VALUES ($1, $2, $3, $4, $5, true)
     ON CONFLICT (bot_id) DO UPDATE
-      SET title=EXCLUDED.title,
-          tg_token_enc=EXCLUDED.tg_token_enc,
-          owner_user_id=EXCLUDED.owner_user_id,
-          is_active=true,
-          updated_at=now()
+      SET title        = COALESCE(EXCLUDED.title,        bots.title),
+          tg_token_enc = COALESCE(EXCLUDED.tg_token_enc, bots.tg_token_enc),
+          owner_user_id= EXCLUDED.owner_user_id,
+          is_active    = true,
+          updated_at   = now()
     RETURNING *`
-  const r = await pgPool.query(q, [p.botId, p.title, enc, secret, p.ownerUserId])
+  const r = await pgPool.query(q, [p.botId, (p.title ?? null), enc, secret, p.ownerUserId])
   return r.rows[0] as BotRow
 }
 
