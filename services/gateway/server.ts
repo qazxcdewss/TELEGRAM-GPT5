@@ -647,7 +647,7 @@ async function main() {
 
     // Грубая форма → жёсткий санитайзер → AJV
     const prelim = normalizeSpecShapeTop(spec)
-    const botId = (prelim?.meta?.botId as string) || headerBotId || ''
+    let botId = (prelim?.meta?.botId as string) || headerBotId || ''
     const forAjv = sanitizeSpecForAjv(prelim, botId)
     const valid = validateBotSpec(forAjv)
     if (!valid) {
@@ -659,7 +659,7 @@ async function main() {
       return reply.code(400).send({ error: { code: 'SPEC_INVALID_SCHEMA', message: 'Validation failed', details } })
     }
     const finalSpec = forAjv
-    const botId = finalSpec.meta.botId as string
+    botId = finalSpec.meta.botId as string
 
     const text = canonical(finalSpec)
     const specSha256 = sha256(text)
@@ -667,7 +667,7 @@ async function main() {
     // write to PG
     const ins = await pool.query(
       'INSERT INTO spec_versions (bot_id, schema_ver, canonical_spec, spec_hash) VALUES ($1,$2,$3,$4) RETURNING id',
-      [botId, (spec as any)?.meta?.schema_ver ?? '1.0.0', JSON.parse(text), specSha256]
+      [botId, (finalSpec as any)?.meta?.schema_ver ?? '1.0.0', JSON.parse(text), specSha256]
     )
     const version = Number(ins.rows[0].id)
 

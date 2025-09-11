@@ -1,10 +1,89 @@
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { uploadSpec, generateCode, listRevisions, deployRev } from '../lib/api'
+import { uploadSpec, generateCode, listRevisions, deployRev, getActiveBotId } from '../lib/api'
 import { loadDraft } from '../lib/storage'
 
 const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
+
+// Мягкая нормализация через /api/nl/spec с fallback при TEXT_REQUIRED/422(draft)
+async function tryNormalize(currentSpec: any) {
+  const r = await fetch(`${API_BASE}/api/nl/spec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: 'Проверь и нормализуй JSON спецификации без изменений логики.',
+      currentSpec
+    })
+  })
+  if (r.status === 422) {
+    try {
+      const j = await r.json()
+      if (j?.draft) return j.draft
+    } catch {}
+    throw new Error('AJV: схема невалидна (422). Исправьте черновик в чате.')
+  }
+  if (!r.ok) {
+    try {
+      const j = await r.json()
+      if (j?.error?.code === 'TEXT_REQUIRED') return currentSpec
+    } catch {}
+    const t = await r.text().catch(()=> '')
+    throw new Error(t || `HTTP_${r.status}`)
+  }
+  const j = await r.json().catch(()=> null)
+  return j?.targetSpec || j?.spec || currentSpec
+}
+
+// Жёсткий санитайзер до строгой BotSpec v1
+function hardNormalizeSpec(draft: any, botId: string) {
+  const out: any = { meta: { botId: String(botId) } }
+
+  // limits (optional)
+  if (draft?.limits && typeof draft.limits === 'object') {
+    const { botRps, chatRps } = draft.limits
+    out.limits = {}
+    if (Number.isInteger(botRps))  out.limits.botRps  = botRps
+    if (Number.isInteger(chatRps)) out.limits.chatRps = chatRps
+  }
+
+  // commands → only {cmd, flow}
+  const cmds = Array.isArray(draft?.commands) ? draft.commands : []
+  out.commands = cmds.map((c: any, i: number) => {
+    let cmd = String(c?.cmd ?? c?.name ?? '').trim()
+    cmd = cmd.replace(/^\/+/, '').replace(/@.+$/, '')
+    const flow = String(c?.flow ?? c?.name ?? `flow_${i}`).trim()
+    return { cmd, flow }
+  }).filter((c: any) => c.cmd && c.flow)
+
+  // flows → keep only supported steps/fields
+  const flows = Array.isArray(draft?.flows) ? draft.flows : []
+  out.flows = flows.map((f: any, i: number) => {
+    const name = String(f?.name ?? `flow_${i}`).trim()
+    const stepsIn = Array.isArray(f?.steps) ? f.steps : []
+    const steps = stepsIn.map((s: any) => {
+      if (!s || typeof s !== 'object') return null
+      if ('sendMessage' in s) {
+        const text = String(s.sendMessage?.text ?? s.sendMessage?.message ?? s.text ?? '')
+        return { type: 'sendMessage', text }
+      }
+      if (s.type === 'sendMessage') {
+        return { type: 'sendMessage', text: String(s.text ?? '') }
+      }
+      if (s.type === 'goto') {
+        return { type: 'goto', to: String(s.to ?? '') }
+      }
+      if (s.type === 'http') {
+        const method = (s.method || 'POST').toUpperCase()
+        return { type: 'http', url: String(s.url || ''), method: (method === 'GET' ? 'GET' : 'POST'), body: s.body ?? null }
+      }
+      return null
+    }).filter(Boolean)
+    return { name, steps }
+  })
+
+  return out
+}
 
 export default function DeployLayer() {
   const [q] = useSearchParams()
@@ -51,38 +130,59 @@ function DeployPanel({ botId }: { botId: string }) {
 
   async function deploy() {
     try {
-      if (!botId || !token.trim()) { alert('Укажи botId и токен'); return }
+      const activeId = botId || getActiveBotId()
+      if (!activeId || !token.trim()) { alert('Укажи botId и токен'); return }
 
-      // —— A) Upload → Generate → Deploy из текущего draft
-      append('[A/3] Upload spec…')
-      let draft = loadDraft(botId)
+      // —— A) Normalize → Upload → Generate → Deploy из текущего draft
+      // 0) берём черновик именно этого бота
+      let draft = loadDraft(activeId)
       if (!draft) { throw new Error('Нет черновика спеки для этого бота') }
-      draft = withBotId(draft, botId)
-      await uploadSpec(botId, draft)
 
-      append('[B/3] Generate bot.js…')
-      await generateCode({ botId, engine: 'local' })
+      // 0.1) мягкая нормализация на бэке (если сервер требует text — вернём исходный)
+      append('[A/4] Нормализую spec (мягко)…')
+      let normalized = await tryNormalize(draft)
+
+      // 0.2) форсируем meta.botId и «жёстко» чистим от лишних полей
+      normalized = hardNormalizeSpec(normalized, activeId)
+
+      // 1) Upload /spec
+      append('[B/4] Upload /spec…')
+      const rSpec = await fetch(`${API_BASE}/spec`, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'x-bot-id': activeId },
+        body: JSON.stringify(normalized)
+      })
+      if (!rSpec.ok) throw new Error(await rSpec.text())
+      const u = await rSpec.json()
+      const specVersionId = Number(u?.specVersionId ?? u?.version)
+      if (!specVersionId) throw new Error('specVersionId missing after /spec')
+
+      // 2) Generate
+      append('[C/4] Generate bot.js…')
+      await generateCode({ botId: activeId, engine: 'local', specVersion: specVersionId })
+
+      // 3) Берём самую свежую ревизию и деплоим
       await new Promise(r=>setTimeout(r, 400))
-      const revs:any = await listRevisions(botId)
+      const revs:any = await listRevisions(activeId)
       const arr = Array.isArray(revs?.items) ? revs.items : Array.isArray(revs) ? revs : []
       const latest = arr[0]?.revHash || arr[0]?.rev_hash
-      if (!latest) throw new Error('No revisions after generate')
-      append(`[C/3] Deploy rev ${latest}…')
-      await deployRev(botId, latest)
+      if (!latest) throw new Error('Нет ревизий после generate')
+      append(`[D/4] Deploy rev ${latest}…`)
+      await deployRev(activeId, latest)
 
       // —— B) Сохранить токен → Validate → SetWebhook
       setBusy('saving'); append('[1/3] Сохраняю токен…')
-      await fetch(`${API_BASE}/api/bots/${encodeURIComponent(botId)}/token`, {
+      await fetch(`${API_BASE}/api/bots/${encodeURIComponent(activeId)}/token`, {
         method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ token })
       }).then(r=>r.ok?r.json():r.text().then(t=>Promise.reject(t)))
 
       setBusy('validating'); append('[2/3] Валидирую токен (getMe)…')
-      await fetch(`${API_BASE}/api/bots/${encodeURIComponent(botId)}/validate`, {
+      await fetch(`${API_BASE}/api/bots/${encodeURIComponent(activeId)}/validate`, {
         method:'POST'
       }).then(r=>r.ok?r.json():r.text().then(t=>Promise.reject(t)))
 
       setBusy('webhook'); append('[3/3] Выставляю вебхук…')
-      await fetch(`${API_BASE}/api/bots/${encodeURIComponent(botId)}/setWebhook`, {
+      await fetch(`${API_BASE}/api/bots/${encodeURIComponent(activeId)}/setWebhook`, {
         method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({})
       }).then(r=>r.ok?r.json():r.text().then(t=>Promise.reject(t)))
 
@@ -145,6 +245,7 @@ const logStyle: React.CSSProperties = {
   border:'1px solid #28324a', borderRadius:8, background:'#0a0f1a', color:'#cbd5e1'
 }
 
+/* withBotId used earlier, keep it for clarity (read by sanitizer too) */
 function withBotId(spec: any, botId: string) {
   const s = JSON.parse(JSON.stringify(spec || {}))
   if (!s.meta) s.meta = {}
