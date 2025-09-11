@@ -19,7 +19,7 @@ export default function DevPanels({ panel, botId }:{ panel:'chat'|'emu'|'both', 
           transition={{ duration:.25, ease:[0.2,0.8,0.2,1] }}
           style={{ minHeight:'65vh', maxHeight:'78vh', border:'1px solid #1e2940', borderRadius:12, overflow:'hidden', background:'#0b1220' }}
         >
-          <AiChatPane />
+          <AiChatPane botId={botId} />
         </motion.div>
       )}
 

@@ -1,6 +1,8 @@
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { uploadSpec, generateCode, listRevisions, deployRev } from '../lib/api'
+import { loadDraft } from '../lib/storage'
 
 const API_BASE = (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
 
@@ -50,6 +52,25 @@ function DeployPanel({ botId }: { botId: string }) {
   async function deploy() {
     try {
       if (!botId || !token.trim()) { alert('Укажи botId и токен'); return }
+
+      // —— A) Upload → Generate → Deploy из текущего draft
+      append('[A/3] Upload spec…')
+      let draft = loadDraft(botId)
+      if (!draft) { throw new Error('Нет черновика спеки для этого бота') }
+      draft = withBotId(draft, botId)
+      await uploadSpec(botId, draft)
+
+      append('[B/3] Generate bot.js…')
+      await generateCode({ botId, engine: 'local' })
+      await new Promise(r=>setTimeout(r, 400))
+      const revs:any = await listRevisions(botId)
+      const arr = Array.isArray(revs?.items) ? revs.items : Array.isArray(revs) ? revs : []
+      const latest = arr[0]?.revHash || arr[0]?.rev_hash
+      if (!latest) throw new Error('No revisions after generate')
+      append(`[C/3] Deploy rev ${latest}…')
+      await deployRev(botId, latest)
+
+      // —— B) Сохранить токен → Validate → SetWebhook
       setBusy('saving'); append('[1/3] Сохраняю токен…')
       await fetch(`${API_BASE}/api/bots/${encodeURIComponent(botId)}/token`, {
         method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ token })
@@ -122,6 +143,13 @@ const closeBtn: React.CSSProperties = { background:'#c22', color:'#fff', border:
 const logStyle: React.CSSProperties = {
   marginTop:8, padding:10, maxHeight:180, overflow:'auto',
   border:'1px solid #28324a', borderRadius:8, background:'#0a0f1a', color:'#cbd5e1'
+}
+
+function withBotId(spec: any, botId: string) {
+  const s = JSON.parse(JSON.stringify(spec || {}))
+  if (!s.meta) s.meta = {}
+  s.meta.botId = botId
+  return s
 }
 
 

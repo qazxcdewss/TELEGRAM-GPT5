@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { nlChat, nlSpec } from '../lib/api'
 import { applyPatch, type Op } from '../lib/patch'
-import { loadState, saveState, resetState } from '../lib/storage'
+import { loadState, saveState, resetState, loadDraft, saveDraft } from '../lib/storage'
 // old UI components no longer used in new layout
 
 type UiMsg = { id:string; role:'user'|'assistant'|'system'; text:string; ts:number;
   attachments?: Array<{kind:'patch'|'full-spec'|'draft'; data:any}> }
 const rid = () => Math.random().toString(36).slice(2)
 
-export default function AiChatPane() {
+export default function AiChatPane({ botId }: { botId: string }) {
   const [messages, setMessages] = useState<UiMsg[]>(() => loadState().messages || [
     { id: rid(), role:'system', text:'Здесь будет чат со спеками / ревизиями. Пока — заглушка.', ts: Date.now() }
   ])
-  const [draft, setDraft] = useState<any>(() => loadState().draft || null)
+  const [draft, setDraft] = useState<any>(() => loadDraft(botId) || loadState().draft || null)
   const [input, setInput] = useState('')
   const [mode, setMode] = useState<'patch'|'full'>('patch')
   const [loading, setLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { saveState({ messages, draft }) }, [messages, draft])
+  useEffect(() => { saveState({ messages, draft }); saveDraft(botId, draft) }, [messages, draft, botId])
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = 1e9
@@ -37,7 +37,7 @@ export default function AiChatPane() {
       const resp = await nlChat({ messages: history, currentSpec: draft || null, mode })
       const attachments: UiMsg['attachments'] = []
       if (Array.isArray(resp?.patch)) attachments.push({ kind:'patch', data: resp.patch })
-      if (resp?.targetSpec) { setDraft(resp.targetSpec); attachments.push({ kind:'full-spec', data: resp.targetSpec }) }
+      if (resp?.targetSpec) { setDraft(withBotId(resp.targetSpec, botId)); attachments.push({ kind:'full-spec', data: withBotId(resp.targetSpec, botId) }) }
       setMessages(m => [...m, { id: rid(), role:'assistant', text: resp?.assistant || 'Готово.', ts: Date.now(), attachments }])
     } catch (e:any) {
       const r = await nlSpec(text, draft || null)
@@ -62,7 +62,7 @@ export default function AiChatPane() {
     catch (e:any) { alert('Не удалось применить Patch: ' + (e?.message||e)) }
   }
 
-  function useAsDraft(obj:any) { setDraft(obj) }
+  function useAsDraft(obj:any) { setDraft(withBotId(obj, botId)) }
   function clearAll() { resetState(); setMessages([]); setDraft(null) }
 
   return (
@@ -126,11 +126,18 @@ export default function AiChatPane() {
           <button className="ai-btn" onClick={send} disabled={!input.trim() || loading}>Send</button>
         </div>
         <div className="ai-hint">
-          Сообщения сохраняются локально • Черновик спеки хранится в памяти • Применение (Upload→Generate→Deploy) добавим позже
+          Сообщения сохраняются локально • Черновик привязан к боту {botId} • Применение (Upload→Generate→Deploy) — через панель «Деплой»
         </div>
       </div>
     </div>
   )
+}
+
+function withBotId(spec: any, botId: string) {
+  const s = JSON.parse(JSON.stringify(spec || {}))
+  if (!s.meta) s.meta = {}
+  s.meta.botId = botId
+  return s
 }
 
 

@@ -124,7 +124,7 @@ export default function App() {
       <div className="layout">
         {/* ===== LEFT: Spec Assistant ===== */}
         <aside className="left-pane">
-          <AiChatPane />
+          <AiChatPane botId={activeBotId} />
         </aside>
 
         {/* ===== RIGHT: Emulator ===== */}
