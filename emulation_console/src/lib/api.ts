@@ -1,6 +1,18 @@
 export const API_BASE =
   (window as any).API || (import.meta as any).env?.VITE_API || 'http://localhost:3000'
 
+async function jsonFetch(path: string, init?: RequestInit) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    credentials: 'include'
+  })
+  const txt = await res.text()
+  const data = txt ? JSON.parse(txt) : null
+  if (!res.ok) throw new Error((data?.error?.code || txt || `HTTP_${res.status}`).slice(0, 200))
+  return data
+}
+
 let activeBotId =
   localStorage.getItem('activeBotId') ||
   (window as any).BOT_ID || (import.meta as any).env?.VITE_BOT_ID || 'my-bot-1'
@@ -48,6 +60,7 @@ export const deployRev    = (botId: string, revHash: string) =>
 
 export const listRevisions = (botId: string) => apiFetch(`/revisions?botId=${encodeURIComponent(botId)}`).then(r=>r.json())
 export const getBot        = (botId: string) => apiFetch(`/bots/${encodeURIComponent(botId)}`).then(r=>r.json())
-export const listBots      = () => apiFetch('/api/bots').then(r=>r.json()).catch(()=>[])
+export const listBots      = () => jsonFetch('/api/bots', { method:'GET' })
+export const createBot     = (botId: string, title?: string) => jsonFetch('/api/bots', { method:'POST', body: JSON.stringify({ botId, title }) })
 
 

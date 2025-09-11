@@ -83,6 +83,11 @@
 
 /* === PAGE LAYOUT: две колонки, слева ассистент, справа эмулятор === */
 html, body, #root { height: 100%; }
+* { box-sizing: border-box }
+
+button { transition: transform .08s ease, box-shadow .12s ease, opacity .12s ease }
+button:hover { transform: translateY(-1px) }
+button:active { transform: translateY(0) }
 
 .layout {
   height: 100vh;
